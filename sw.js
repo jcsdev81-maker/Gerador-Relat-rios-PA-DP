@@ -2,7 +2,7 @@
     Coloque este arquivo na MESMA PASTA do index.html no GitHub.
     Ele faz o app funcionar offline e permite instalar no celular. */
 
-const CACHE = 'bio-profibus-v2';
+const CACHE = 'bio-profibus-v2.1';
 const ASSETS = ['./', './index.html'];
 
 self.addEventListener('install', e => {
