@@ -1,0 +1,2820 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="theme-color" content="#006f51">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="BIO·PROFIBUS">
+<meta name="description" content="Análise e relatório técnico de redes Profibus DP/PA. Funciona 100% offline.">
+<!-- Manifesto PWA embutido via JavaScript (veja final do arquivo) -->
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 192 192'%3E%3Ccircle cx='96' cy='96' r='96' fill='%23006f51'/%3E%3Ccircle cx='96' cy='96' r='20' fill='%23fff'/%3E%3Cpath d='M96 20l10 40-10 6-10-6z' fill='%23fff'/%3E%3Cpath d='M96 172l10-40-10-6-10 6z' fill='%23fff'/%3E%3Cpath d='M20 96l40 10 6-10-6-10z' fill='%23fff'/%3E%3Cpath d='M172 96l-40 10-6-10 6-10z' fill='%23fff'/%3E%3Ccircle cx='152' cy='40' r='24' fill='%23ffd400' opacity='.85'/%3E%3C/svg%3E">
+<link rel="apple-touch-icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 192 192'%3E%3Ccircle cx='96' cy='96' r='96' fill='%23006f51'/%3E%3Ccircle cx='96' cy='96' r='20' fill='%23fff'/%3E%3Cpath d='M96 20l10 40-10 6-10-6z' fill='%23fff'/%3E%3Cpath d='M96 172l10-40-10-6-10 6z' fill='%23fff'/%3E%3Cpath d='M20 96l40 10 6-10-6-10z' fill='%23fff'/%3E%3Cpath d='M172 96l-40 10-6-10 6-10z' fill='%23fff'/%3E%3Ccircle cx='152' cy='40' r='24' fill='%23ffd400' opacity='.85'/%3E%3C/svg%3E">
+<title>BIO·PROFIBUS · Análise de Rede</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+/* ============================================================
+   BIO·PROFIBUS — Relatório de análise Profibus PA
+   ============================================================ */
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+
+:root{
+  --bp-green:#006f51;
+  --bp-green-dark:#004a36;
+  --bp-green-light:#6bb024;
+  --bp-yellow:#ffd400;
+  --bp-yellow-dim:#f0c000;
+
+  --bg:#eef1ee;
+  --surface:#ffffff;
+  --surface-2:#fafbfa;
+  --border:#d8ddd8;
+  --border-2:#c8d0c8;
+  --text:#1a2620;
+  --text-2:#4a5751;
+  --muted:#7a8580;
+  --dim:#a5ada8;
+
+  --good:#2ea84a;
+  --good-dark:#1a6e30;
+  --good-light:#a3d8a8;
+  --warn:#f5a623;
+  --warn-dark:#a06000;
+  --warn-light:#fff0c8;
+  --crit:#d63838;
+  --crit-dark:#a01818;
+  --crit-light:#fdd6d4;
+
+  --font-sans:'DM Sans',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;
+  --font-mono:'JetBrains Mono','SF Mono','Cascadia Code','Fira Code',Consolas,'Courier New',monospace;
+  --font-doc: Arial, 'Liberation Sans', 'Helvetica Neue', sans-serif;
+
+  --radius:8px;
+  --radius-lg:12px;
+  --shadow:0 1px 3px rgba(0,0,0,0.04),0 1px 2px rgba(0,0,0,0.06);
+  --shadow-lg:0 4px 14px rgba(0,80,60,0.10),0 1px 3px rgba(0,0,0,0.04);
+}
+
+html,body{height:100%}
+body{
+  background:var(--bg);color:var(--text);
+  font-family:var(--font-sans);font-size:15px;line-height:1.55;
+  -webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility;
+}
+
+/* ====================== HEADER DA APP ====================== */
+.app-header{
+  background:linear-gradient(135deg,var(--bp-green-dark) 0%,var(--bp-green) 60%,var(--bp-green-light) 140%);
+  color:#fff;padding:18px 24px;
+  display:flex;align-items:center;justify-content:space-between;
+  gap:16px;flex-wrap:wrap;
+  box-shadow:0 2px 8px rgba(0,80,60,0.15);
+  position:relative;overflow:hidden;
+}
+.app-header::after{
+  content:'';position:absolute;
+  top:-30px;right:-40px;width:140px;height:140px;
+  background:radial-gradient(circle,var(--bp-yellow) 0%,transparent 70%);
+  opacity:0.18;pointer-events:none;
+}
+.brand{display:flex;align-items:center;gap:14px}
+.brand-mark{
+  width:44px;height:44px;
+  display:grid;place-items:center;
+  background:var(--bp-yellow);border-radius:50%;
+  box-shadow:0 0 0 2px rgba(255,255,255,0.2);
+}
+.brand-text h1{font-size:18px;font-weight:700;letter-spacing:-0.01em;line-height:1.1}
+.brand-text p{font-size:11px;font-weight:500;opacity:0.85;text-transform:uppercase;letter-spacing:0.1em;margin-top:2px}
+.header-status{
+  display:inline-flex;align-items:center;gap:8px;
+  background:rgba(255,255,255,0.12);
+  border:1px solid rgba(255,255,255,0.2);
+  padding:6px 12px;border-radius:20px;
+  font-family:var(--font-mono);font-size:11px;
+  text-transform:uppercase;letter-spacing:0.06em;
+}
+.status-led{width:7px;height:7px;border-radius:50%;background:var(--bp-yellow)}
+.status-led.live{background:var(--bp-yellow);box-shadow:0 0 8px var(--bp-yellow);animation:pulse 1.4s infinite}
+.status-led.done{background:var(--bp-green-light);box-shadow:0 0 8px var(--bp-green-light)}
+.status-led.err{background:var(--crit);box-shadow:0 0 8px var(--crit)}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:0.4}}
+
+.shell{max-width:1180px;margin:0 auto;padding:24px}
+
+/* ====================== DROPZONE ====================== */
+.dropzone{
+  background:var(--surface);
+  border:2px dashed var(--border-2);
+  border-radius:var(--radius-lg);
+  padding:60px 24px;text-align:center;cursor:pointer;
+  transition:all 0.2s;position:relative;overflow:hidden;
+}
+.dropzone:hover,.dropzone.over{border-color:var(--bp-green);background:var(--surface-2);box-shadow:var(--shadow-lg)}
+.dropzone-icon{
+  display:inline-flex;width:64px;height:64px;
+  background:linear-gradient(135deg,var(--bp-green) 0%,var(--bp-green-light) 100%);
+  border-radius:50%;align-items:center;justify-content:center;
+  color:#fff;margin-bottom:18px;
+  box-shadow:0 4px 12px rgba(0,111,81,0.25);
+}
+.dropzone h2{font-size:22px;font-weight:600;margin-bottom:6px;letter-spacing:-0.01em}
+.dropzone p{color:var(--text-2);margin-bottom:14px}
+.dropzone-hint{
+  display:inline-block;font-family:var(--font-mono);font-size:11px;color:var(--muted);
+  text-transform:uppercase;letter-spacing:0.1em;padding:4px 10px;
+  background:var(--bg);border-radius:4px;
+}
+
+/* ====================== WORKSPACE ====================== */
+.workspace{display:flex;flex-direction:column;gap:18px}
+.file-bar{
+  display:flex;align-items:center;justify-content:space-between;
+  background:var(--surface);border:1px solid var(--border);
+  border-radius:var(--radius);padding:14px 18px;
+  gap:12px;flex-wrap:wrap;box-shadow:var(--shadow);
+}
+.file-info{display:flex;align-items:center;gap:14px;min-width:0;flex:1}
+.file-pdf-tag{
+  font-family:var(--font-mono);font-weight:600;font-size:11px;
+  background:var(--bp-green);color:#fff;
+  padding:6px 10px;border-radius:4px;letter-spacing:0.05em;
+}
+.file-info strong{display:block;font-size:14px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.file-info .meta{font-family:var(--font-mono);font-size:11px;color:var(--muted)}
+
+.tabs-bar{
+  display:flex;gap:4px;background:var(--surface);
+  border:1px solid var(--border);border-radius:var(--radius);
+  padding:4px;box-shadow:var(--shadow);flex-wrap:wrap;
+}
+.tab-btn{
+  flex:1;min-width:120px;background:transparent;border:none;
+  padding:10px 14px;font-family:var(--font-sans);font-size:13px;font-weight:500;
+  color:var(--text-2);cursor:pointer;border-radius:6px;transition:all 0.15s;
+  display:flex;align-items:center;justify-content:center;gap:6px;
+}
+.tab-btn:hover{background:var(--bg);color:var(--text)}
+.tab-btn.active{background:var(--bp-green);color:#fff;box-shadow:0 2px 6px rgba(0,111,81,0.25)}
+.tab-btn .num{font-family:var(--font-mono);font-size:10px;background:rgba(0,0,0,0.08);padding:1px 6px;border-radius:8px}
+.tab-btn.active .num{background:rgba(255,255,255,0.2)}
+
+.panel{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);box-shadow:var(--shadow)}
+.panel-head{padding:14px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.panel-head h3{font-size:15px;font-weight:600;letter-spacing:-0.01em}
+.panel-head .desc{font-size:12px;color:var(--muted);font-family:var(--font-mono)}
+.panel-body{padding:18px}
+
+.form-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px}
+.form-grid.full{grid-template-columns:1fr}
+.form-field{display:flex;flex-direction:column;gap:5px}
+.form-field label{font-size:11px;font-weight:600;color:var(--text-2);text-transform:uppercase;letter-spacing:0.06em}
+.form-field input,.form-field textarea,.form-field select{
+  padding:9px 12px;background:var(--surface);
+  border:1px solid var(--border-2);border-radius:6px;
+  font-family:var(--font-sans);font-size:14px;color:var(--text);
+  transition:all 0.15s;
+}
+.form-field textarea{resize:vertical;min-height:70px;font-family:var(--font-sans)}
+.form-field input:focus,.form-field textarea:focus,.form-field select:focus{
+  outline:none;border-color:var(--bp-green);box-shadow:0 0 0 3px rgba(0,111,81,0.12);
+}
+
+.tag-list{display:flex;flex-direction:column;gap:8px}
+.tag-row{
+  display:grid;grid-template-columns:80px 1fr 2fr;gap:10px;align-items:center;
+  padding:8px 12px;background:var(--surface-2);border:1px solid var(--border);border-radius:6px;
+}
+.tag-row .addr{
+  font-family:var(--font-mono);font-weight:600;font-size:13px;
+  color:var(--bp-green-dark);background:#fff;padding:4px 8px;border-radius:4px;
+  text-align:center;border:1px solid var(--border);
+}
+.tag-row .info{font-size:12px;color:var(--text-2);font-family:var(--font-mono);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tag-row input{
+  padding:7px 10px;background:#fff;border:1px solid var(--border-2);
+  border-radius:4px;font-family:var(--font-mono);font-size:13px;
+  font-weight:500;color:var(--text);text-transform:uppercase;
+}
+.tag-row input:focus{outline:none;border-color:var(--bp-green);box-shadow:0 0 0 2px rgba(0,111,81,0.1)}
+
+.btn{
+  font-family:var(--font-sans);font-size:13px;font-weight:500;
+  padding:9px 16px;border-radius:6px;cursor:pointer;border:1px solid transparent;
+  transition:all 0.15s;display:inline-flex;align-items:center;gap:7px;white-space:nowrap;
+}
+.btn-primary{background:var(--bp-green);color:#fff;border-color:var(--bp-green)}
+.btn-primary:hover{background:var(--bp-green-dark);border-color:var(--bp-green-dark);box-shadow:0 2px 8px rgba(0,111,81,0.25)}
+.btn-yellow{background:var(--bp-yellow);color:var(--bp-green-dark);border-color:var(--bp-yellow);font-weight:600}
+.btn-yellow:hover{background:var(--bp-yellow-dim);border-color:var(--bp-yellow-dim)}
+.btn-ghost{background:transparent;color:var(--text);border-color:var(--border-2)}
+.btn-ghost:hover{background:var(--bg);border-color:var(--bp-green);color:var(--bp-green-dark)}
+.btn-row{display:flex;gap:8px;flex-wrap:wrap}
+
+.loading{padding:60px 24px;text-align:center;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);box-shadow:var(--shadow)}
+.scanner{position:relative;width:240px;height:140px;margin:0 auto 24px;border:1px solid var(--border-2);background:var(--bg);overflow:hidden;border-radius:6px}
+.scan-grid{position:absolute;inset:0;background-image:linear-gradient(rgba(0,111,81,0.15) 1px,transparent 1px),linear-gradient(90deg,rgba(0,111,81,0.15) 1px,transparent 1px);background-size:20px 20px}
+.scan-line{position:absolute;left:0;right:0;height:2px;background:linear-gradient(90deg,transparent,var(--bp-green-light),transparent);box-shadow:0 0 12px var(--bp-green-light);animation:scan 1.8s ease-in-out infinite}
+@keyframes scan{0%,100%{top:0}50%{top:138px}}
+.loading h3{font-size:17px;font-weight:600;margin-bottom:6px}
+.loading p{color:var(--muted);font-size:13px}
+
+.err-box{padding:24px;text-align:center;background:#fef4f4;border:1px solid #f5c6c6;border-radius:var(--radius)}
+.err-box strong{display:block;color:var(--crit);font-size:15px;margin-bottom:6px}
+.err-box p{color:var(--text-2);font-size:13px;margin-bottom:14px;font-family:var(--font-mono)}
+
+.report-toolbar{
+  display:flex;justify-content:space-between;align-items:center;
+  background:var(--surface);border:1px solid var(--border);
+  border-radius:var(--radius);padding:12px 16px;
+  box-shadow:var(--shadow);gap:10px;flex-wrap:wrap;
+}
+.report-toolbar-info{font-size:12px;color:var(--muted);font-family:var(--font-mono)}
+
+.app-footer{padding:24px;text-align:center;font-size:11px;color:var(--muted);font-family:var(--font-mono);text-transform:uppercase;letter-spacing:0.08em}
+
+.hidden{display:none !important}
+
+/* ============================================================
+   RELATÓRIO — estilo ProfiTrace
+   ============================================================ */
+.pt-doc{
+  font-family:var(--font-doc);
+  color:#000;
+}
+.pt-page{
+  background:#fff;
+  width:21cm;
+  min-height:29.7cm;
+  margin:14px auto;
+  padding:1.4cm 1.8cm;
+  box-shadow:0 4px 16px rgba(0,0,0,0.08);
+  display:flex;flex-direction:column;
+  font-size:10pt;line-height:1.4;
+  color:#000;
+  position:relative;
+}
+
+/* Cabeçalho de cada página (estilo Procentec) */
+.pt-page-head{
+  display:flex;align-items:center;gap:14px;
+  border-bottom:2px solid var(--bp-green);
+  padding-bottom:10px;margin-bottom:18px;
+}
+.pt-logo{
+  width:54px;height:54px;flex-shrink:0;
+  background:var(--bp-green);
+  border-radius:50%;
+  display:grid;place-items:center;
+  position:relative;
+}
+.pt-logo::after{
+  content:'';position:absolute;
+  top:-3px;right:-3px;width:18px;height:18px;
+  background:var(--bp-yellow);border-radius:50%;
+  border:2px solid #fff;
+}
+.pt-logo svg{display:block}
+.pt-page-title{flex:1;text-align:right}
+.pt-page-title h1{
+  font-size:14pt;font-weight:bold;color:#000;
+  line-height:1.2;letter-spacing:-0.01em;
+}
+.pt-page-title small{
+  font-size:8pt;color:#555;
+  display:inline-block;margin-top:2px;
+}
+.pt-page-title small b{color:var(--bp-green);font-weight:600}
+
+.pt-page-body{flex:1}
+
+/* Rodapé de cada página */
+.pt-page-foot{
+  margin-top:auto;
+  padding-top:8px;
+  border-top:1px solid #999;
+  display:flex;justify-content:space-between;align-items:flex-end;
+  font-size:7.5pt;color:#444;
+  gap:12px;
+}
+.pt-page-foot-left{display:flex;flex-direction:column;gap:2px}
+.pt-page-foot-disclaimer{font-size:7pt;color:#666;margin-bottom:2px}
+.pt-sig-row{display:flex;gap:10px;align-items:flex-end}
+.pt-sig-cell{display:flex;flex-direction:column;min-width:90px}
+.pt-sig-cell label{font-size:6.5pt;color:#666;margin-bottom:1px}
+.pt-sig-cell .line{
+  border-bottom:1px solid #555;height:14px;
+  font-size:8pt;font-weight:500;color:#000;
+  padding:0 2px;
+}
+.pt-page-foot-right{
+  text-align:right;font-size:8pt;
+  display:flex;flex-direction:column;gap:2px;
+}
+.pt-page-num{font-weight:500;color:#222}
+
+/* Seções do relatório */
+.pt-section{margin-bottom:18px}
+.pt-section h2{
+  font-size:13pt;font-weight:bold;color:#000;
+  margin-bottom:10px;padding-bottom:0;
+}
+.pt-section h3{
+  font-size:11pt;font-weight:bold;color:#000;
+  margin:14px 0 8px;
+}
+.pt-section h4{
+  font-size:10pt;font-weight:bold;color:#000;
+  margin:10px 0 6px;
+}
+
+/* Lista de campos label: valor (estilo ProfiTrace) */
+.pt-fields{
+  display:grid;grid-template-columns:170px 1fr;
+  row-gap:5px;column-gap:8px;
+  font-size:10pt;
+}
+.pt-fields .lbl{color:#000}
+.pt-fields .val{color:#000;font-weight:500}
+
+/* Caixa "Project details" / Comentários */
+.pt-box{
+  border:1px solid #888;
+  padding:10px 14px;
+  min-height:60px;
+  font-size:9.5pt;
+  margin-top:4px;
+}
+.pt-box-caption{
+  font-size:8pt;color:#666;
+  text-align:center;font-style:italic;
+  margin-top:4px;
+}
+
+/* Conclusão com checkboxes */
+.pt-conclusion{
+  border:1px solid #888;
+  padding:10px 14px;
+  display:flex;flex-direction:column;gap:8px;
+}
+.pt-check-row{display:flex;align-items:center;gap:10px;font-size:10pt}
+.pt-check{
+  width:18px;height:18px;
+  border:1.5px solid #333;
+  display:inline-grid;place-items:center;
+  font-weight:bold;font-size:13pt;line-height:1;
+  flex-shrink:0;
+}
+.pt-check.checked{color:var(--crit);border-color:var(--crit)}
+.pt-check-row.active{font-weight:bold}
+
+/* Tested subjects (6.x) */
+.pt-subjects{display:grid;grid-template-columns:1fr auto;row-gap:10px;column-gap:18px;font-size:10pt}
+.pt-subj{display:contents}
+.pt-subj .desc{display:flex;flex-direction:column}
+.pt-subj .desc .main{color:#000}
+.pt-subj .desc .note{font-size:8.5pt;color:#666;font-style:italic;margin-top:2px;line-height:1.3}
+.pt-subj .res{display:flex;align-items:center;gap:8px;white-space:nowrap;justify-content:flex-end}
+.pt-subj .res .val{font-weight:500}
+.pt-subj .res .icon{
+  width:18px;height:18px;
+  border:1.5px solid #333;
+  display:inline-grid;place-items:center;
+  font-weight:bold;line-height:1;flex-shrink:0;
+}
+.pt-subj .res .icon.ok{color:var(--good);border-color:var(--good)}
+.pt-subj .res .icon.fail{color:var(--crit);border-color:var(--crit)}
+
+/* Live List grid 13 linhas x 10 colunas (0-126) */
+.pt-livelist{
+  border-collapse:collapse;
+  font-family:var(--font-doc);
+  width:100%;
+  table-layout:fixed;
+}
+.pt-livelist th,.pt-livelist td{
+  text-align:center;
+  border:2px solid #fff;
+  padding:5px 2px;
+  font-size:8.5pt;
+  height:28px;
+  overflow:hidden;
+}
+.pt-livelist thead th{
+  background:#fff;color:#888;font-weight:normal;
+  font-size:8pt;border:none;
+}
+.pt-livelist .row-h{
+  background:#fff;color:#888;font-weight:normal;
+  font-size:8pt;border:none;
+  width:32px;
+}
+.pt-livelist .empty{background:#fff;color:#bbb;font-size:8pt}
+.pt-livelist .master{
+  background:#a3d8a8;color:#000;font-weight:bold;
+}
+.pt-livelist .slave-ok{
+  background:#71c14a;color:#000;font-weight:600;
+  font-size:7pt;letter-spacing:-0.02em;
+}
+.pt-livelist .slave-warn{background:#f5d24a;color:#000;font-weight:bold}
+.pt-livelist .slave-crit{background:#e95f5f;color:#000;font-weight:bold}
+.pt-livelist .reserved{background:#dadada;color:#888}
+.pt-livelist .invisible{visibility:hidden}
+
+.pt-legend{
+  display:grid;grid-template-columns:1fr 1fr;
+  gap:6px 24px;margin-top:14px;font-size:9pt;
+}
+.pt-legend .lg-item{display:flex;align-items:center;gap:8px}
+.pt-legend .swatch{
+  display:inline-block;width:32px;height:14px;
+  border:1px solid #999;flex-shrink:0;
+}
+.pt-legend .swatch-num{
+  display:inline-grid;place-items:center;
+  width:32px;height:18px;border:1px solid #999;
+  font-weight:bold;font-size:9pt;
+}
+
+/* Tabela genérica estilo ProfiTrace */
+.pt-table{
+  width:100%;border-collapse:collapse;
+  font-size:9pt;font-family:var(--font-doc);
+}
+.pt-table th{
+  text-align:left;padding:5px 8px;
+  border-bottom:2px solid #333;
+  font-weight:bold;color:#000;
+}
+.pt-table td{
+  padding:4px 8px;border-bottom:1px solid #ccc;
+  color:#000;
+}
+.pt-table .num{text-align:right;font-variant-numeric:tabular-nums}
+.pt-table .center{text-align:center}
+
+/* Bar graph block */
+.pt-bargraph{margin-bottom:20px}
+.pt-bargraph-title{font-size:10pt;font-weight:bold;margin-bottom:4px}
+.pt-bargraph-sub{font-size:9pt;margin-bottom:8px;color:#222}
+.pt-bargraph-svg-wrap{
+  background:#fafafa;border:1px solid #d0d0d0;
+  padding:6px;
+}
+.pt-bargraph svg{display:block;width:100%;height:auto}
+
+/* Device details */
+.pt-device{
+  margin-bottom:14px;
+  page-break-inside:avoid;
+}
+.pt-device-head{
+  background:#f0f0f0;
+  border-left:4px solid var(--bp-green);
+  padding:6px 12px;
+  margin-bottom:8px;
+  display:flex;justify-content:space-between;align-items:center;
+  gap:10px;flex-wrap:wrap;
+}
+.pt-device-head.warn{border-left-color:var(--warn)}
+.pt-device-head.crit{border-left-color:var(--crit)}
+.pt-device-head .h-left{display:flex;align-items:baseline;gap:14px}
+.pt-device-head .h-addr{font-weight:bold;font-size:11pt;color:#000}
+.pt-device-head .h-tag{font-weight:600;font-size:10pt;color:var(--bp-green-dark)}
+.pt-device-head .h-pill{
+  font-size:8pt;font-weight:bold;
+  padding:2px 8px;border-radius:9px;
+  text-transform:uppercase;letter-spacing:0.04em;
+}
+.pt-device-head .h-pill.ok{background:var(--good-light);color:var(--good-dark)}
+.pt-device-head .h-pill.warn{background:var(--warn-light);color:var(--warn-dark)}
+.pt-device-head .h-pill.crit{background:var(--crit-light);color:var(--crit-dark)}
+
+.pt-device-fields{
+  display:grid;grid-template-columns:170px 1fr;
+  row-gap:3px;font-size:9.5pt;
+  padding:0 4px;
+}
+.pt-device-fields .lbl{color:#222}
+.pt-device-fields .val{color:#000;font-weight:500}
+
+/* Recomendações */
+.pt-recommendations{
+  background:#fffce6;
+  border:1px solid #f0e090;
+  border-left:4px solid var(--bp-yellow);
+  padding:14px 18px 14px 28px;
+  font-size:10pt;
+}
+.pt-recommendations ol{margin:0;padding-left:14px}
+.pt-recommendations li{padding:5px 0;color:#000;line-height:1.5}
+.pt-recommendations li strong{color:var(--bp-green-dark)}
+
+.pt-no-issues{
+  text-align:center;padding:14px;
+  background:#e9f5ec;border:1px solid #b8e0bf;
+  color:var(--good-dark);font-weight:500;font-size:10pt;
+}
+
+/* ====================== DASHBOARD ====================== */
+.dash-score-row{
+  display:flex;align-items:center;gap:24px;
+  margin-bottom:24px;padding-bottom:20px;
+  border-bottom:1px solid var(--border);
+}
+.dash-score-ring{width:120px;height:120px;flex-shrink:0}
+.score-svg{width:100%;height:100%}
+.dash-verdict{display:flex;flex-direction:column;gap:4px}
+.dash-verdict-label{font-size:22px;font-weight:700;letter-spacing:-0.02em}
+.dash-verdict-sub{font-size:13px;color:var(--text-2);line-height:1.5}
+.dash-kpis{
+  display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));
+  gap:12px;margin-bottom:20px;
+}
+.dash-kpi{
+  background:var(--surface-2);border:1px solid var(--border);
+  border-radius:var(--radius);padding:14px;text-align:center;
+}
+.dash-kpi .kpi-val{font-size:26px;font-weight:700;font-family:var(--font-mono);line-height:1.2}
+.dash-kpi .kpi-lbl{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.06em;margin-top:4px}
+.dash-kpi.ok .kpi-val{color:var(--good)}
+.dash-kpi.warn .kpi-val{color:var(--warn)}
+.dash-kpi.crit .kpi-val{color:var(--crit)}
+.dash-alerts{display:flex;flex-direction:column;gap:8px}
+.dash-alert{
+  display:flex;align-items:flex-start;gap:10px;
+  padding:10px 14px;border-radius:6px;font-size:13px;line-height:1.5;
+}
+.dash-alert.crit{background:var(--crit-light);border-left:3px solid var(--crit)}
+.dash-alert.warn{background:var(--warn-light);border-left:3px solid var(--warn)}
+.dash-alert.ok{background:#e9f5ec;border-left:3px solid var(--good)}
+.dash-alert .alert-icon{font-size:16px;flex-shrink:0;margin-top:1px}
+
+/* ====================== TOAST ====================== */
+.toast{
+  position:fixed;bottom:24px;right:24px;z-index:9999;
+  background:var(--bp-green-dark);color:#fff;
+  padding:12px 20px;border-radius:var(--radius);
+  font-size:13px;font-weight:500;
+  box-shadow:0 8px 24px rgba(0,0,0,0.18);
+  transform:translateY(80px);opacity:0;
+  transition:all 0.3s cubic-bezier(0.4,0,0.2,1);
+  pointer-events:none;
+}
+.toast.show{transform:translateY(0);opacity:1;pointer-events:auto}
+.toast.error{background:var(--crit)}
+
+/* ====================== OFFLINE INDICATOR ====================== */
+.offline-bar{
+  display:none;
+  background:#333;color:#fff;
+  text-align:center;padding:6px 14px;
+  font-size:12px;font-weight:500;
+  letter-spacing:0.03em;
+  gap:8px;align-items:center;justify-content:center;
+}
+.offline-bar.visible{display:flex}
+.offline-dot{
+  width:8px;height:8px;border-radius:50%;
+  background:#f5a623;flex-shrink:0;
+}
+
+/* ====================== INSTALL BANNER ====================== */
+.install-banner{
+  display:none;
+  background:linear-gradient(135deg,var(--bp-green-dark),var(--bp-green));
+  color:#fff;padding:14px 20px;
+  align-items:center;gap:14px;justify-content:space-between;
+  flex-wrap:wrap;
+}
+.install-banner.visible{display:flex}
+.install-banner-text{font-size:13px;font-weight:500;line-height:1.4}
+.install-banner-text strong{font-weight:700}
+.install-banner-actions{display:flex;gap:8px;flex-shrink:0}
+.install-btn{
+  background:var(--bp-yellow);color:var(--bp-green-dark);
+  border:none;padding:8px 16px;border-radius:6px;
+  font-family:var(--font-sans);font-size:13px;font-weight:700;
+  cursor:pointer;transition:all 0.15s;
+}
+.install-btn:hover{background:var(--bp-yellow-dim)}
+.install-dismiss{
+  background:rgba(255,255,255,0.15);color:#fff;
+  border:1px solid rgba(255,255,255,0.3);padding:8px 14px;
+  border-radius:6px;font-family:var(--font-sans);font-size:13px;
+  font-weight:500;cursor:pointer;transition:all 0.15s;
+}
+.install-dismiss:hover{background:rgba(255,255,255,0.25)}
+
+/* ====================== PWA STATUS (header) ====================== */
+.pwa-badge{
+  display:inline-flex;align-items:center;gap:5px;
+  font-size:10px;color:rgba(255,255,255,0.7);
+  text-transform:uppercase;letter-spacing:0.08em;
+  padding:3px 8px;background:rgba(255,255,255,0.08);
+  border-radius:10px;margin-left:8px;
+}
+
+/* ====================== TAG SEARCH ====================== */
+.tag-search{
+  margin-bottom:14px;position:relative;
+}
+.tag-search input{
+  width:100%;padding:9px 12px 9px 36px;
+  background:var(--surface);border:1px solid var(--border-2);
+  border-radius:6px;font-family:var(--font-sans);font-size:14px;
+  color:var(--text);transition:all 0.15s;
+}
+.tag-search input:focus{outline:none;border-color:var(--bp-green);box-shadow:0 0 0 3px rgba(0,111,81,0.12)}
+.tag-search .search-icon{position:absolute;left:11px;top:50%;transform:translateY(-50%);color:var(--muted);pointer-events:none}
+
+/* ============================================================
+   RESPONSIVO
+   ============================================================ */
+@media(max-width:880px){
+  .pt-page{
+    width:auto;min-height:auto;
+    margin:14px;padding:24px 18px;
+  }
+  .pt-page-title h1{font-size:13pt}
+  .pt-fields{grid-template-columns:140px 1fr}
+  .pt-device-fields{grid-template-columns:130px 1fr}
+}
+@media(max-width:560px){
+  .shell{padding:14px}
+  .app-header{padding:14px 16px}
+  .brand-text h1{font-size:16px}
+  .brand-text p{font-size:10px}
+  .dropzone{padding:42px 18px}
+  .dropzone h2{font-size:18px}
+  .pt-page{margin:8px;padding:18px 12px}
+  .pt-page-head{gap:10px}
+  .pt-logo{width:40px;height:40px}
+  .pt-page-title h1{font-size:11pt}
+  .pt-fields,.pt-device-fields{grid-template-columns:110px 1fr;font-size:9pt}
+  .pt-livelist th,.pt-livelist td{font-size:7.5pt;height:24px}
+  .pt-legend{grid-template-columns:1fr}
+  .tab-btn{padding:8px 10px;font-size:12px;min-width:90px}
+  .tag-row{grid-template-columns:60px 1fr;gap:8px}
+  .tag-row .info{display:none}
+  .dash-score-row{flex-direction:column;text-align:center}
+  .dash-kpis{grid-template-columns:repeat(3,1fr)}
+  .toast{left:14px;right:14px;bottom:14px}
+}
+
+/* ============================================================
+   PRINT (PDF)
+   ============================================================ */
+@media print{
+  body{background:#fff !important;margin:0;padding:0}
+  .app-header,.app-footer,.dropzone,.file-bar,.loading,.err-box,
+  .tabs-bar,#tab-setup,#tab-tags,#tab-dashboard,.report-toolbar{
+    display:none !important;
+  }
+  .shell{
+    max-width:100% !important;padding:0 !important;margin:0 !important;
+  }
+  .workspace{gap:0 !important}
+  #tab-report{display:block !important}
+  #tab-report.hidden{display:block !important}
+
+  .pt-doc{margin:0;padding:0}
+  .pt-page{
+    width:100% !important;
+    min-height:0 !important;
+    margin:0 !important;
+    padding:0 !important;
+    box-shadow:none !important;
+    page-break-after:always !important;
+    page-break-inside:avoid !important;
+  }
+  .pt-page:last-child{page-break-after:auto !important}
+
+  .pt-page-head{
+    border-bottom-color:var(--bp-green) !important;
+    -webkit-print-color-adjust:exact;
+    print-color-adjust:exact;
+  }
+  .pt-livelist td,.pt-livelist th,
+  .pt-bargraph svg,
+  .pt-device-head,
+  .pt-recommendations,
+  .pt-no-issues,
+  .pt-logo,
+  .pt-section,
+  .h-pill{
+    -webkit-print-color-adjust:exact !important;
+    print-color-adjust:exact !important;
+    color-adjust:exact !important;
+  }
+
+  @page{size:A4;margin:1.4cm 1.6cm}
+}
+</style>
+</head>
+<body>
+
+<!-- Barra de status offline -->
+<div class="offline-bar" id="offlineBar">
+  <span class="offline-dot"></span>
+  <span>Modo offline — todos os recursos estão em cache</span>
+</div>
+
+<!-- Banner de instalação PWA -->
+<div class="install-banner" id="installBanner">
+  <div class="install-banner-text">
+    <strong>Instalar BIO·PROFIBUS</strong> no seu dispositivo para usar offline em campo, sem precisar de internet.
+  </div>
+  <div class="install-banner-actions">
+    <button class="install-btn" id="installBtn">Instalar</button>
+    <button class="install-dismiss" id="installDismiss">Agora não</button>
+  </div>
+</div>
+
+<header class="app-header">
+  <div class="brand">
+    <div class="brand-mark">
+      <svg width="26" height="26" viewBox="0 0 24 24" fill="none">
+        <circle cx="12" cy="12" r="3" fill="#006f51"/>
+        <path d="M12 2 L13.5 8 L12 9 L10.5 8 Z" fill="#006f51"/>
+        <path d="M12 22 L13.5 16 L12 15 L10.5 16 Z" fill="#006f51"/>
+        <path d="M2 12 L8 13.5 L9 12 L8 10.5 Z" fill="#006f51"/>
+        <path d="M22 12 L16 13.5 L15 12 L16 10.5 Z" fill="#006f51"/>
+        <path d="M5 5 L9 8 L8 9 L5 9 Z" fill="#006f51"/>
+        <path d="M19 5 L15 8 L16 9 L19 9 Z" fill="#006f51"/>
+        <path d="M5 19 L9 16 L8 15 L5 15 Z" fill="#006f51"/>
+        <path d="M19 19 L15 16 L16 15 L19 15 Z" fill="#006f51"/>
+      </svg>
+    </div>
+    <div class="brand-text">
+      <h1>BIO·PROFIBUS</h1>
+      <p>Análise de rede &middot; Relatório técnico</p>
+    </div>
+  </div>
+  <div class="header-status">
+    <span id="statusLed" class="status-led"></span>
+    <span id="statusText">Pronto</span>
+  </div>
+</header>
+
+<main class="shell">
+  <section id="dropzone" class="dropzone">
+    <input type="file" id="fileInput" accept="application/pdf,.pdf,.ptn,.ptd" style="display:none">
+    <div class="dropzone-icon">
+      <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M14 3v5h5M5 21V3h9l5 5v13z"/><path d="M9 13h6M9 17h6"/>
+      </svg>
+    </div>
+    <h2>Envie o arquivo do ProfiTrace</h2>
+    <p>Arraste o PDF ou .ptn aqui, ou clique para selecionar</p>
+    <span class="dropzone-hint">PDF · PTN · gerado pelo ProfiTrace</span>
+  </section>
+
+  <section id="workspace" class="workspace hidden">
+    <div class="file-bar">
+      <div class="file-info">
+        <span class="file-pdf-tag">PDF</span>
+        <div>
+          <strong id="fileName">arquivo.pdf</strong>
+          <span class="meta" id="fileMeta">— KB</span>
+        </div>
+      </div>
+      <button class="btn btn-ghost" id="btnReset">Novo arquivo</button>
+    </div>
+
+    <div id="loadingBox" class="loading hidden">
+      <div class="scanner">
+        <div class="scan-grid"></div>
+        <div class="scan-line"></div>
+      </div>
+      <h3 id="loadingTitle">Analisando...</h3>
+      <p id="loadingDesc">Extraindo dados</p>
+    </div>
+
+    <div id="errBox" class="err-box hidden">
+      <strong>Não foi possível processar o arquivo</strong>
+      <p id="errMsg"></p>
+      <button class="btn btn-primary" id="btnRetry">Tentar novamente</button>
+    </div>
+
+    <div id="tabsBar" class="tabs-bar hidden">
+      <button class="tab-btn active" data-tab="dashboard">Resumo</button>
+      <button class="tab-btn" data-tab="setup">Identificação</button>
+      <button class="tab-btn" data-tab="tags">TAGs <span class="num" id="tagCount">0</span></button>
+      <button class="tab-btn" data-tab="report">Relatório</button>
+    </div>
+
+    <div id="tab-dashboard" class="panel tab-content">
+      <div class="panel-head">
+        <h3>Resumo da análise</h3>
+        <span class="desc" id="dashNetworkName">—</span>
+      </div>
+      <div class="panel-body">
+        <div class="dash-score-row" id="dashScoreRow">
+          <div class="dash-score-ring" id="dashScoreRing">
+            <svg viewBox="0 0 120 120" class="score-svg">
+              <circle cx="60" cy="60" r="52" fill="none" stroke="#e8ede8" stroke-width="10"/>
+              <circle cx="60" cy="60" r="52" fill="none" stroke-width="10" stroke-linecap="round"
+                      id="dashScoreArc" stroke="#2ea84a"
+                      stroke-dasharray="327" stroke-dashoffset="327"
+                      transform="rotate(-90 60 60)"/>
+              <text x="60" y="54" text-anchor="middle" font-size="32" font-weight="700" fill="currentColor" id="dashScoreNum">—</text>
+              <text x="60" y="72" text-anchor="middle" font-size="11" fill="#7a8580" font-weight="500">SAÚDE</text>
+            </svg>
+          </div>
+          <div class="dash-verdict" id="dashVerdict">
+            <span class="dash-verdict-label" id="dashVerdictLabel">Analisando...</span>
+            <span class="dash-verdict-sub" id="dashVerdictSub">Carregue um PDF para ver o resultado</span>
+          </div>
+        </div>
+        <div class="dash-kpis" id="dashKpis"></div>
+        <div class="dash-alerts" id="dashAlerts"></div>
+      </div>
+    </div>
+
+    <div id="tab-setup" class="panel tab-content hidden">
+      <div class="panel-head">
+        <h3>Identificação do trabalho</h3>
+        <span class="desc">Dados que aparecem no relatório</span>
+      </div>
+      <div class="panel-body">
+        <div class="form-grid">
+          <div class="form-field"><label>Cliente / Unidade</label><input type="text" id="f-cliente" placeholder="Ex: Usina Santa Helena"></div>
+          <div class="form-field"><label>Planta / Setor</label><input type="text" id="f-planta" placeholder="Ex: Destilaria"></div>
+          <div class="form-field"><label>Área / Sistema</label><input type="text" id="f-area" placeholder="Ex: Fermentação - Loop 03"></div>
+          <div class="form-field"><label>Técnico responsável</label><input type="text" id="f-tecnico" placeholder="Seu nome"></div>
+          <div class="form-field"><label>Função / Cargo</label><input type="text" id="f-cargo" placeholder="Técnico de instrumentação"></div>
+          <div class="form-field"><label>Data do relatório</label><input type="date" id="f-data"></div>
+        </div>
+        <div class="form-grid full" style="margin-top:14px">
+          <div class="form-field"><label>Comentários / Observações</label><textarea id="f-comentarios" placeholder="Texto livre que aparece na seção 5 do relatório"></textarea></div>
+        </div>
+      </div>
+    </div>
+
+    <div id="tab-tags" class="panel tab-content hidden">
+      <div class="panel-head">
+        <h3>Mapeamento TAG ↔ Endereço</h3>
+        <span class="desc">Identifique cada instrumento pelo TAG (opcional)</span>
+      </div>
+      <div class="panel-body">
+        <div class="tag-search">
+          <span class="search-icon">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+          </span>
+          <input type="text" id="tagSearchInput" placeholder="Filtrar por endereço, fabricante ou TAG...">
+        </div>
+        <div id="tagList" class="tag-list"></div>
+      </div>
+    </div>
+
+    <div id="tab-report" class="tab-content hidden">
+      <div class="report-toolbar">
+        <span class="report-toolbar-info" id="reportInfo">Pronto para download</span>
+        <div class="btn-row">
+          <button class="btn btn-ghost" id="btnRefresh">↻ Atualizar</button>
+          <button class="btn btn-ghost" id="btnCsv">⬇ CSV</button>
+          <button class="btn btn-yellow" id="btnPdf">⬇ Baixar PDF</button>
+          <button class="btn btn-primary" id="btnWord">⬇ Baixar Word</button>
+        </div>
+      </div>
+      <article id="reportDoc" class="pt-doc"></article>
+    </div>
+  </section>
+</main>
+
+<footer class="app-footer">
+  BIO·PROFIBUS v2.0 · Suporte DP + PA · Travas anti-erro ativas · Os dados são processados localmente no seu navegador
+</footer>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script>
+pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+</script>
+
+<script>
+/* ============================================================
+   STATE
+   ============================================================ */
+const state = {
+  file: null,
+  data: null,
+  tags: {},
+  meta: {
+    cliente:'', planta:'', area:'',
+    tecnico:'', cargo:'', data:'',
+    comentarios:''
+  }
+};
+
+/* ============================================================
+   TRAVAS ANTI-ERRO — Limites baseados nas normas IEC 61158 / IEC 61784
+   Valores FIXOS, não inventados. Se o dado cai fora, é descartado.
+   ============================================================ */
+const SIGNAL_LIMITS = { good_min:500, warn_min:350, high_max:1000 };
+const JITTER_LIMITS = { good_max:1.5, warn_max:3.0 };
+const DP_SIGNAL_LIMITS = { good_min:4.0, warn_min:2.0, high_max:7.0 };
+const DP_IDLE_LIMITS = { good_min:0.4, good_max:1.2, warn_min:0.2, warn_max:1.5 };
+
+// Validação: faixas fisicamente possíveis (trava contra lixo binário)
+const VALID_RANGES = {
+  baud: [9600, 12000000],        // 9.6 kbps a 12 Mbps
+  address: [0, 126],             // Endereço PROFIBUS válido
+  voltage_ab: [0.1, 12.0],       // Tensão diferencial AB em Volts
+  voltage_idle: [0.01, 3.0],     // Tensão idle em Volts
+  signal_pa: [10, 1500],         // Sinal PA em mV
+  jitter: [0, 50],               // Jitter em µs
+};
+
+function isValidRange(value, rangeKey) {
+  if (value == null || isNaN(value)) return false;
+  const [min, max] = VALID_RANGES[rangeKey] || [0, Infinity];
+  return value >= min && value <= max;
+}
+
+function idleQuality(val) {
+  if (val == null) return 'unknown';
+  if (val >= DP_IDLE_LIMITS.good_min && val <= DP_IDLE_LIMITS.good_max) return 'ok';
+  if (val >= DP_IDLE_LIMITS.warn_min && val <= DP_IDLE_LIMITS.warn_max) return 'warn';
+  return 'crit';
+}
+
+function signalQuality(val){
+  if (val == null) return 'unknown';
+  const lim = state.data && state.data.networkType === 'DP' ? DP_SIGNAL_LIMITS : SIGNAL_LIMITS;
+  if (val > lim.high_max) return 'crit';
+  if (val >= lim.good_min) return 'ok';
+  if (val >= lim.warn_min) return 'warn';
+  return 'crit';
+}
+function jitterQuality(us){
+  if (us == null) return 'unknown';
+  if (us <= JITTER_LIMITS.good_max) return 'ok';
+  if (us <= JITTER_LIMITS.warn_max) return 'warn';
+  return 'crit';
+}
+function signalUnit(){
+  return state.data && state.data.networkType === 'DP' ? 'V' : 'mV';
+}
+function signalLimits(){
+  return state.data && state.data.networkType === 'DP' ? DP_SIGNAL_LIMITS : SIGNAL_LIMITS;
+}
+
+/* ============================================================
+   ELEMS
+   ============================================================ */
+const $ = sel => document.querySelector(sel);
+const $$ = sel => document.querySelectorAll(sel);
+const dropzone = $('#dropzone');
+const fileInput = $('#fileInput');
+const workspace = $('#workspace');
+const fileNameEl = $('#fileName');
+const fileMetaEl = $('#fileMeta');
+const loadingBox = $('#loadingBox');
+const loadingTitle = $('#loadingTitle');
+const loadingDesc = $('#loadingDesc');
+const errBox = $('#errBox');
+const errMsg = $('#errMsg');
+const tabsBar = $('#tabsBar');
+const tagListEl = $('#tagList');
+const tagCountEl = $('#tagCount');
+const reportDoc = $('#reportDoc');
+const statusLed = $('#statusLed');
+const statusText = $('#statusText');
+
+const meta_inputs = {
+  cliente: $('#f-cliente'),
+  planta:  $('#f-planta'),
+  area:    $('#f-area'),
+  tecnico: $('#f-tecnico'),
+  cargo:   $('#f-cargo'),
+  data:    $('#f-data'),
+  comentarios: $('#f-comentarios'),
+};
+
+function setStatus(kind, txt){
+  statusLed.className = 'status-led ' + (kind || '');
+  statusText.textContent = txt;
+}
+
+/* ============================================================
+   DROPZONE
+   ============================================================ */
+dropzone.addEventListener('click', () => fileInput.click());
+dropzone.addEventListener('dragover', e => { e.preventDefault(); dropzone.classList.add('over'); });
+dropzone.addEventListener('dragleave', () => dropzone.classList.remove('over'));
+dropzone.addEventListener('drop', e => {
+  e.preventDefault();
+  dropzone.classList.remove('over');
+  const f = e.dataTransfer.files?.[0];
+  if (f) handleFile(f);
+});
+fileInput.addEventListener('change', e => {
+  const f = e.target.files?.[0];
+  if (f) handleFile(f);
+});
+
+$('#btnReset').addEventListener('click', () => {
+  state.file = null;
+  state.data = null;
+  state.tags = {};
+  fileInput.value = '';
+  workspace.classList.add('hidden');
+  dropzone.classList.remove('hidden');
+  setStatus('', 'Pronto');
+});
+
+$('#btnRetry').addEventListener('click', () => {
+  if (state.file) handleFile(state.file);
+});
+
+/* ============================================================
+   TABS
+   ============================================================ */
+$$('.tab-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const tab = btn.dataset.tab;
+    $$('.tab-btn').forEach(b => b.classList.toggle('active', b === btn));
+    $$('.tab-content').forEach(el => el.classList.toggle('hidden', el.id !== 'tab-' + tab));
+    if (tab === 'report') renderReport();
+    if (tab === 'dashboard') renderDashboard();
+  });
+});
+
+/* ============================================================
+   TOAST NOTIFICATIONS
+   ============================================================ */
+function showToast(msg, isError = false){
+  let toast = document.getElementById('toast');
+  if (!toast){
+    toast = document.createElement('div');
+    toast.id = 'toast';
+    toast.className = 'toast';
+    document.body.appendChild(toast);
+  }
+  toast.textContent = msg;
+  toast.className = 'toast' + (isError ? ' error' : '');
+  requestAnimationFrame(() => { toast.classList.add('show'); });
+  clearTimeout(toast._t);
+  toast._t = setTimeout(() => toast.classList.remove('show'), 3500);
+}
+
+/* ============================================================
+   DASHBOARD
+   ============================================================ */
+function renderDashboard(){
+  if (!state.data) return;
+  const d = state.data;
+
+  // Health score calculation (0-100)
+  let score = 100;
+  const penalties = [];
+
+  // Signal penalties
+  const sigEntries = Object.entries(d.signals).map(([a,v]) => ({addr:parseInt(a,10), v, q:signalQuality(v)}));
+  const jitEntries = Object.entries(d.jitters).map(([a,v]) => ({addr:parseInt(a,10), v, q:jitterQuality(v)}));
+  const idleEntries = Object.entries(d.idleVoltages || {}).map(([a,v]) => ({addr:parseInt(a,10), v, q:idleQuality(v)}));
+
+  const critSignals = sigEntries.filter(s => s.q === 'crit').length;
+  const warnSignals = sigEntries.filter(s => s.q === 'warn').length;
+  const critJitter = jitEntries.filter(j => j.q === 'crit').length;
+  const warnJitter = jitEntries.filter(j => j.q === 'warn').length;
+  const critIdle = idleEntries.filter(i => i.q === 'crit').length;
+  const warnIdle = idleEntries.filter(i => i.q === 'warn').length;
+
+  score -= critSignals * 15;
+  score -= warnSignals * 5;
+  score -= critJitter * 12;
+  score -= warnJitter * 4;
+  score -= critIdle * 10;
+  score -= warnIdle * 3;
+
+  const totalLost = d.devices.reduce((s,x) => s + (x.timesLost||0), 0);
+  const totalRetries = d.devices.reduce((s,x) => s + (x.retryCount||0), 0);
+  const totalDiag = d.devices.reduce((s,x) => s + (x.diagDx||0), 0);
+
+  score -= totalLost * 10;
+  score -= totalRetries * 3;
+  score -= totalDiag * 5;
+  if (d.lostSlaves.length > 0) score -= 10;
+  if (d.illegalDevices.length > 0) score -= 15;
+
+  score = Math.max(0, Math.min(100, score));
+
+  // Animate score ring
+  const arc = document.getElementById('dashScoreArc');
+  const numEl = document.getElementById('dashScoreNum');
+  const circumference = 2 * Math.PI * 52; // ~327
+  const offset = circumference - (score / 100) * circumference;
+
+  let color = '#2ea84a';
+  if (score < 50) color = '#d63838';
+  else if (score < 75) color = '#f5a623';
+
+  arc.style.stroke = color;
+  arc.style.transition = 'stroke-dashoffset 1s ease-out';
+  requestAnimationFrame(() => { arc.style.strokeDashoffset = offset; });
+  numEl.textContent = score;
+
+  // Verdict
+  const verdictLabel = document.getElementById('dashVerdictLabel');
+  const verdictSub = document.getElementById('dashVerdictSub');
+  if (score >= 85){
+    verdictLabel.textContent = 'Rede saudável';
+    verdictLabel.style.color = 'var(--good)';
+    verdictSub.textContent = 'A rede está operando dentro dos parâmetros normais. Recomenda-se monitoramento periódico.';
+  } else if (score >= 60){
+    verdictLabel.textContent = 'Atenção necessária';
+    verdictLabel.style.color = 'var(--warn)';
+    verdictSub.textContent = 'Foram encontrados desvios que merecem atenção. Verifique os detalhes abaixo e planeje intervenções.';
+  } else {
+    verdictLabel.textContent = 'Intervenção necessária';
+    verdictLabel.style.color = 'var(--crit)';
+    verdictSub.textContent = 'A rede apresenta problemas críticos que podem causar paradas. Ação corretiva urgente é recomendada.';
+  }
+
+  // Network name
+  document.getElementById('dashNetworkName').textContent = d.network.name || 'Rede sem nome';
+
+  // KPIs
+  const kpisEl = document.getElementById('dashKpis');
+  const kpis = [
+    { val: d.network.slaves, lbl: 'Escravos', cls: 'ok' },
+    { val: d.network.masters, lbl: 'Mestres', cls: 'ok' },
+    { val: d.networkType || 'DP', lbl: 'Tipo de rede', cls: 'ok' },
+    { val: critSignals + critJitter + critIdle, lbl: 'Críticos', cls: (critSignals + critJitter + critIdle) > 0 ? 'crit' : 'ok' },
+    { val: warnSignals + warnJitter + warnIdle, lbl: 'Alertas', cls: (warnSignals + warnJitter + warnIdle) > 0 ? 'warn' : 'ok' },
+    { val: totalLost, lbl: 'Perdidos', cls: totalLost > 0 ? 'crit' : 'ok' },
+  ];
+  kpisEl.innerHTML = kpis.map(k => `
+    <div class="dash-kpi ${k.cls}">
+      <div class="kpi-val">${k.val}</div>
+      <div class="kpi-lbl">${k.lbl}</div>
+    </div>
+  `).join('');
+
+  // Alerts
+  const alertsEl = document.getElementById('dashAlerts');
+  const alerts = [];
+
+  if (critSignals > 0) alerts.push({cls:'crit', icon:'⚠', msg:`${critSignals} dispositivo(s) com tensão AB Diff crítica (abaixo de ${signalLimits().warn_min} ${signalUnit()} ou acima de ${signalLimits().high_max} ${signalUnit()})`});
+  if (critJitter > 0) alerts.push({cls:'crit', icon:'⚠', msg:`${critJitter} dispositivo(s) com jitter acima do limite (>${JITTER_LIMITS.warn_max} µs)`});
+  if (critIdle > 0) alerts.push({cls:'crit', icon:'⚠', msg:`${critIdle} dispositivo(s) com tensão idle fora da faixa (ideal: ${DP_IDLE_LIMITS.good_min}–${DP_IDLE_LIMITS.good_max} V)`});
+  if (totalLost > 0) alerts.push({cls:'crit', icon:'⚠', msg:`${totalLost} perda(s) de comunicação registrada(s) — verificar cabeamento e alimentação`});
+  if (d.illegalDevices.length > 0) alerts.push({cls:'crit', icon:'⚠', msg:`Dispositivos com respostas ilegais: endereço(s) ${d.illegalDevices.join(', ')}`});
+  if (warnSignals > 0) alerts.push({cls:'warn', icon:'⚡', msg:`${warnSignals} dispositivo(s) com tensão na faixa de atenção (${signalLimits().warn_min}–${signalLimits().good_min} ${signalUnit()})`});
+  if (warnIdle > 0) alerts.push({cls:'warn', icon:'⚡', msg:`${warnIdle} dispositivo(s) com tensão idle marginalmente fora da faixa`});
+  if (totalRetries > 0) alerts.push({cls:'warn', icon:'⚡', msg:`${totalRetries} retentativa(s) registrada(s) — possível degradação do meio físico`});
+  if (totalDiag > 0) alerts.push({cls:'warn', icon:'⚡', msg:`${totalDiag} diagnóstico(s) gerados durante data exchange`});
+
+  if (alerts.length === 0) alerts.push({cls:'ok', icon:'✓', msg:'Nenhum problema detectado. Rede operando normalmente.'});
+
+  alertsEl.innerHTML = alerts.map(a => `
+    <div class="dash-alert ${a.cls}">
+      <span class="alert-icon">${a.icon}</span>
+      <span>${a.msg}</span>
+    </div>
+  `).join('');
+}
+
+/* ============================================================
+   FORM (META) — persist no localStorage
+   ============================================================ */
+Object.keys(meta_inputs).forEach(k => {
+  meta_inputs[k].addEventListener('input', e => {
+    state.meta[k] = e.target.value;
+    persistMeta();
+  });
+});
+
+function persistMeta(){
+  try { localStorage.setItem('bp_profibus_meta', JSON.stringify(state.meta)); } catch(e){ /* private browsing */ }
+}
+function loadMeta(){
+  try {
+    const s = localStorage.getItem('bp_profibus_meta');
+    if (s) {
+      const parsed = JSON.parse(s);
+      state.meta = { ...state.meta, ...parsed };
+    }
+  } catch(e){ /* private browsing or corrupted data */ }
+  Object.keys(meta_inputs).forEach(k => { if (state.meta[k]) meta_inputs[k].value = state.meta[k]; });
+  if (!state.meta.data) {
+    const d = new Date();
+    const iso = d.toISOString().slice(0,10);
+    meta_inputs.data.value = iso;
+    state.meta.data = iso;
+  }
+}
+loadMeta();
+
+/* ============================================================
+   PROCESSAMENTO DO PDF
+   ============================================================ */
+async function handleFile(f){
+  state.file = f;
+  state.data = null;
+  state.tags = {};
+  fileNameEl.textContent = f.name;
+  fileMetaEl.textContent = (f.size/1024).toFixed(1) + ' KB';
+  dropzone.classList.add('hidden');
+  workspace.classList.remove('hidden');
+  loadingBox.classList.remove('hidden');
+  errBox.classList.add('hidden');
+  tabsBar.classList.add('hidden');
+  $$('.tab-content').forEach(el => el.classList.add('hidden'));
+  setStatus('live', 'Analisando');
+
+  try {
+    const fname = f.name.toLowerCase();
+    const isPtn = fname.endsWith('.ptn');
+    const isPdf = fname.endsWith('.pdf');
+    const isPtd = fname.endsWith('.ptd');
+
+    if (!isPdf && !isPtn && !isPtd) {
+      throw new Error('Formato não suportado. Use PDF (.pdf) ou Network Manager (.ptn) do ProfiTrace.');
+    }
+
+    // Update file tag
+    const fileTag = document.querySelector('.file-pdf-tag');
+    if (fileTag) fileTag.textContent = isPtn ? 'PTN' : isPtd ? 'PTD' : 'PDF';
+
+    const buf = await f.arrayBuffer();
+    let data;
+
+    if (isPtn) {
+      loadingTitle.textContent = 'Lendo arquivo .ptn...';
+      loadingDesc.textContent = 'Extraindo dados do Network Manager';
+
+      loadingTitle.textContent = 'Analisando a rede...';
+      loadingDesc.textContent = 'Identificando dispositivos e tensões';
+
+      data = parsePtnFile(buf);
+
+      loadingTitle.textContent = 'Processando dados...';
+      loadingDesc.textContent = 'Construindo relatório';
+    } else if (isPtd) {
+      throw new Error('Arquivo .ptd contém captura bruta sem dados de análise. Use o arquivo .ptn (Network Manager) da mesma medição, ou exporte um PDF pelo ProfiTrace.');
+    } else {
+      loadingTitle.textContent = 'Lendo o PDF...';
+      loadingDesc.textContent = 'Extraindo conteúdo das páginas';
+      const pdf = await pdfjsLib.getDocument({data: buf}).promise;
+
+      loadingTitle.textContent = 'Analisando a rede...';
+      loadingDesc.textContent = `${pdf.numPages} páginas · Identificando dispositivos, sinais e jitter`;
+
+      const fullText = await extractAllText(pdf);
+
+      loadingTitle.textContent = 'Processando dados...';
+      loadingDesc.textContent = 'Construindo relatório';
+
+      data = parseProfiTrace(fullText);
+    }
+
+    if (data.devices.length === 0 && data.addresses.length === 0 && Object.keys(data.signals).length === 0) {
+      throw new Error('Nenhum dispositivo Profibus foi encontrado. Verifique se é um arquivo válido do ProfiTrace.');
+    }
+
+    state.data = data;
+    loadTags();
+    buildTagList();
+
+    loadingBox.classList.add('hidden');
+    tabsBar.classList.remove('hidden');
+    $('#tab-dashboard').classList.remove('hidden');
+    $$('.tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === 'dashboard'));
+    renderDashboard();
+    setStatus('done', 'Concluído');
+  } catch (e) {
+    console.error(e);
+    loadingBox.classList.add('hidden');
+    errBox.classList.remove('hidden');
+    errMsg.textContent = e.message || String(e);
+    setStatus('err', 'Erro');
+  }
+}
+
+/* ============================================================
+   PARSER .PTN (ProfiTrace Network Manager binary)
+   ============================================================ */
+function parsePtnFile(arrayBuffer) {
+  const bytes = new Uint8Array(arrayBuffer);
+  const data = {
+    network: {
+      name:'', location:'', startTime:'', duration:'',
+      speed:'', masters:0, slaves:0,
+      cycleMin:'', cycleAvg:'', cycleMax:'',
+      proficore:'', version:'',
+      projectDetails:''
+    },
+    networkType: 'DP',
+    deviations: false,
+    diagSlaves: [],
+    lostSlaves: [],
+    illegalDevices: [],
+    retrySlaves: [],
+    syncSlaves: [],
+    reservedDevice: [],
+    paramSlaves: [],
+    addresses: [],
+    devices: [],
+    signals: {},
+    jitters: {},
+    idleVoltages: {},
+    rawText: '',
+    // TRAVA: Rastreamento de confiança — só mostra o que REALMENTE foi encontrado
+    _confidence: {
+      baudFound: false,
+      serialFound: false,
+      stationsFound: 0,
+      signalsFound: 0,
+      idleFound: 0,
+      warnings: []
+    }
+  };
+
+  // --- Helper: find a null-terminated ASCII string at position ---
+  function readString(pos, maxLen) {
+    let s = '';
+    for (let i = 0; i < maxLen && pos + i < bytes.length; i++) {
+      const b = bytes[pos + i];
+      if (b === 0) break;
+      if (b >= 32 && b < 127) s += String.fromCharCode(b);
+    }
+    return s;
+  }
+
+  // --- Helper: find all occurrences of a byte pattern ---
+  function findPattern(pattern) {
+    const results = [];
+    const patBytes = new TextEncoder().encode(pattern);
+    outer: for (let i = 0; i < bytes.length - patBytes.length; i++) {
+      for (let j = 0; j < patBytes.length; j++) {
+        if (bytes[i + j] !== patBytes[j]) continue outer;
+      }
+      results.push(i);
+    }
+    return results;
+  }
+
+  // --- Helper: find a float string near a position ---
+  function findFloatAfter(pos, maxDist) {
+    let buf = '';
+    for (let i = pos; i < Math.min(pos + maxDist, bytes.length); i++) {
+      buf += String.fromCharCode(bytes[i]);
+    }
+    const m = buf.match(/(\d+\.\d{3,})/);
+    return m ? parseFloat(m[1]) : null;
+  }
+
+  // --- Helper: find integer string near a position ---
+  function findIntAfter(pos, maxDist) {
+    let buf = '';
+    for (let i = pos; i < Math.min(pos + maxDist, bytes.length); i++) {
+      buf += String.fromCharCode(bytes[i]);
+    }
+    const m = buf.match(/(\d+)/);
+    return m ? parseInt(m[1], 10) : null;
+  }
+
+  // 1. Extract baudrate — COM VALIDAÇÃO
+  const baudPositions = findPattern('@assumedbaudrate\0');
+  if (baudPositions.length > 0) {
+    const baud = findIntAfter(baudPositions[0] + '@assumedbaudrate\0'.length, 40);
+    if (baud && isValidRange(baud, 'baud')) {
+      data._confidence.baudFound = true;
+      if (baud === 31250 || baud === 45450) {
+        data.networkType = 'PA';
+        data.network.speed = baud === 31250 ? '31.25 kbit/s' : '45.45 kbit/s';
+      } else {
+        data.networkType = 'DP';
+        if (baud >= 1000000) data.network.speed = (baud / 1000000).toFixed(1) + ' Mbit/s';
+        else data.network.speed = (baud / 1000).toFixed(2) + ' kbit/s';
+      }
+    } else {
+      data._confidence.warnings.push('Baud rate encontrado mas com valor fora da faixa válida — descartado');
+    }
+  }
+
+  // 2. Extract ProfiCore serial — COM VALIDAÇÃO
+  const snPositions = findPattern('@CorePrms\0');
+  if (snPositions.length > 0) {
+    const sn = readString(snPositions[0] + '@CorePrms\0'.length + 8, 20);
+    const cleaned = sn.replace(/[^0-9a-zA-Z]/g, '');
+    if (cleaned.length >= 6) {
+      data.network.proficore = cleaned;
+      data._confidence.serialFound = true;
+    }
+  }
+
+  // 3. Extract network name
+  const netPositions = findPattern('@network\0');
+  if (netPositions.length > 0) {
+    const titleAfterNet = findPattern('@titlename\0');
+    for (const tp of titleAfterNet) {
+      if (tp > netPositions[0] && tp < netPositions[0] + 200) {
+        let scanPos = tp + '@titlename\0'.length;
+        for (let k = 0; k < 40; k++) {
+          const ch = bytes[scanPos + k];
+          if (ch >= 65 && ch <= 122) {
+            const name = readString(scanPos + k, 40);
+            if (name !== 'Network' && name !== 'Segment' && name.length > 0) {
+              data.network.name = name;
+            }
+            break;
+          }
+        }
+        break;
+      }
+    }
+  }
+
+  // 4. Extract stations (devices) with addresses and voltages
+  const abDiffPositions = findPattern('AB Diff voltage\0');
+  const abDiffStablePositions = findPattern('AB Diff stable voltage\0');
+  const idleVoltPositions = findPattern('@idlevoltage\0');
+  const timeoutPositions = findPattern('@TimeOutCounter\0');
+  const processPositions = findPattern('@ProcessCount\0');
+
+  // Parse "(N) Slave" or "(N) Master" patterns
+  const stationLabels = [];
+  const labelRegex = /\((\d{1,3})\)\s*(Slave|Master|New station)/g;
+  const textView = new TextDecoder('ascii', {fatal: false}).decode(bytes);
+  let lm;
+  while ((lm = labelRegex.exec(textView)) !== null) {
+    const addr = parseInt(lm[1], 10);
+    // TRAVA: Validar endereço antes de aceitar
+    if (isValidRange(addr, 'address')) {
+      stationLabels.push({ pos: lm.index, addr, type: lm[2] });
+    }
+  }
+  stationLabels.sort((a, b) => a.pos - b.pos);
+
+  let masterCount = 0;
+  let slaveCount = 0;
+
+  for (let si = 0; si < stationLabels.length; si++) {
+    const st = stationLabels[si];
+    const nextPos = si + 1 < stationLabels.length ? stationLabels[si + 1].pos : bytes.length;
+
+    if (st.type === 'Master') { masterCount++; continue; }
+    if (st.type === 'New station') {
+      // Registrar como dispositivo não parametrizado
+      data._confidence.warnings.push(`Endereço ${st.addr}: "New station" — dispositivo detectado mas sem parametrização`);
+      continue;
+    }
+    slaveCount++;
+    data._confidence.stationsFound++;
+
+    // Find AB Diff voltage — COM VALIDAÇÃO
+    let abDiffValue = null;
+    for (const adp of abDiffPositions) {
+      if (adp > st.pos && adp < nextPos) {
+        const raw = findFloatAfter(adp + 'AB Diff voltage\0'.length, 50);
+        if (raw !== null && isValidRange(raw, 'voltage_ab')) {
+          abDiffValue = Math.round(raw * 1000) / 1000;
+          data._confidence.signalsFound++;
+        }
+        break;
+      }
+    }
+
+    // Find AB Diff stable voltage
+    let abDiffStable = null;
+    for (const adsp of abDiffStablePositions) {
+      if (adsp > st.pos && adsp < nextPos) {
+        const raw = findFloatAfter(adsp + 'AB Diff stable voltage\0'.length, 50);
+        if (raw !== null && isValidRange(raw, 'voltage_ab')) {
+          abDiffStable = Math.round(raw * 1000) / 1000;
+        }
+        break;
+      }
+    }
+
+    // Collect idle voltages — COM VALIDAÇÃO
+    const idleVoltages = [];
+    for (const ivp of idleVoltPositions) {
+      if (ivp > st.pos && ivp < nextPos) {
+        const v = findFloatAfter(ivp + '@idlevoltage\0'.length, 30);
+        if (v !== null && isValidRange(v, 'voltage_idle')) {
+          idleVoltages.push(v);
+        }
+      }
+    }
+
+    // Find TimeOutCounter
+    let timeout = null;
+    for (const tp of timeoutPositions) {
+      if (tp > st.pos && tp < nextPos) {
+        timeout = findFloatAfter(tp + '@TimeOutCounter\0'.length, 30);
+        if (timeout !== null) break;
+      }
+    }
+
+    // Find ProcessCount
+    let processCount = null;
+    for (const pp of processPositions) {
+      if (pp > st.pos && pp < nextPos) {
+        processCount = findFloatAfter(pp + '@ProcessCount\0'.length, 30);
+        if (processCount !== null) break;
+      }
+    }
+
+    // TRAVA: Só gravar tensão se o valor é fisicamente possível
+    if (abDiffValue !== null) {
+      data.signals[st.addr] = abDiffValue;
+    }
+
+    // Idle voltage — guardar média validada
+    const avgIdle = idleVoltages.length > 0
+      ? idleVoltages.reduce((s,v) => s+v, 0) / idleVoltages.length
+      : null;
+    if (avgIdle !== null) {
+      data.idleVoltages[st.addr] = Math.round(avgIdle * 1000) / 1000;
+      data._confidence.idleFound++;
+    }
+
+    // Build device entry
+    const dev = {
+      addr: st.addr,
+      deviceType: 'Slave',
+      manufacturer: '',
+      model: '',
+      diagDx: 0,
+      timesLost: 0,
+      retryCount: 0,
+      abDiffVoltage: abDiffValue,
+      abDiffStable: abDiffStable,
+      idleVoltageAvg: avgIdle ? Math.round(avgIdle * 1000) / 1000 : null,
+      idleVoltageCount: idleVoltages.length,
+      processCount: processCount ? Math.round(processCount) : null
+    };
+
+    data.devices.push(dev);
+    data.addresses.push({
+      addr: st.addr,
+      identNr: '',
+      manufacturer: '',
+      model: '',
+      revision: ''
+    });
+  }
+
+  data.network.slaves = slaveCount;
+  data.network.masters = masterCount || 1;
+
+  if (!data.network.name) data.network.name = 'Rede Profibus';
+
+  // TRAVA: Verificar consistência dos dados encontrados
+  if (data._confidence.stationsFound === 0) {
+    data._confidence.warnings.push('Nenhuma estação escrava encontrada no arquivo');
+  }
+  if (data._confidence.signalsFound === 0 && data._confidence.stationsFound > 0) {
+    data._confidence.warnings.push('Estações encontradas mas sem dados de tensão AB Diff — o arquivo pode estar incompleto');
+  }
+
+  return data;
+}
+
+async function extractAllText(pdf){
+  const pages = [];
+  for (let i = 1; i <= pdf.numPages; i++) {
+    const p = await pdf.getPage(i);
+    const content = await p.getTextContent();
+    const items = content.items.map(it => ({
+      s: it.str, x: it.transform[4], y: it.transform[5]
+    }));
+    items.sort((a,b) => (b.y - a.y) || (a.x - b.x));
+    const lines = [];
+    let curY = null, curLine = [];
+    for (const it of items){
+      if (curY === null || Math.abs(it.y - curY) < 3){
+        curLine.push(it); curY = it.y;
+      } else {
+        lines.push(curLine.map(t => t.s).join(' '));
+        curLine = [it]; curY = it.y;
+      }
+    }
+    if (curLine.length) lines.push(curLine.map(t => t.s).join(' '));
+    pages.push(lines.join('\n'));
+  }
+  return pages.join('\n\n=== PAGE ===\n\n');
+}
+
+/* ============================================================
+   PARSER ProfiTrace
+   ============================================================ */
+function parseProfiTrace(text){
+  const data = {
+    network: {
+      name:'', location:'', startTime:'', duration:'',
+      speed:'', masters:0, slaves:0,
+      cycleMin:'', cycleAvg:'', cycleMax:'',
+      proficore:'', version:'',
+      projectDetails:''
+    },
+    deviations: false,
+    diagSlaves: [],
+    lostSlaves: [],
+    illegalDevices: [],
+    retrySlaves: [],
+    syncSlaves: [],
+    reservedDevice: [],
+    paramSlaves: [],
+    addresses: [],
+    devices: [],
+    signals: {},
+    jitters: {},
+    idleVoltages: {},
+    rawText: text,
+    _confidence: {
+      baudFound: false,
+      serialFound: false,
+      stationsFound: 0,
+      signalsFound: 0,
+      idleFound: 0,
+      warnings: []
+    }
+  };
+
+  const get = (re, fallback='') => {
+    const m = text.match(re);
+    return m ? (m[1] || '').trim() : fallback;
+  };
+
+  data.network.name      = get(/Network name:\s*([^\n]+)/i);
+  data.network.location  = get(/Location:\s*([^\n]+)/i);
+  data.network.startTime = get(/Measurement start time:\s*([^\n]+)/i);
+  data.network.duration  = get(/Measurement duration:\s*([^\n]+)/i);
+  data.network.speed     = get(/Transmission speed:\s*([^\n]+)/i);
+  data.network.proficore = get(/ProfiCore serial number:\s*([^\n]+)/i);
+  data.network.version   = get(/ProfiTrace version:\s*([^\n]+)/i);
+  data.network.masters   = parseInt(get(/Number of Masters:\s*(\d+)/i, '0'), 10) || 0;
+  data.network.slaves    = parseInt(get(/Number of slaves:\s*(\d+)/i, '0'), 10) || 0;
+
+  // Detect network type from speed
+  const speedStr = data.network.speed.toLowerCase();
+  if (/31\.25|45\.45/i.test(speedStr)) {
+    data.networkType = 'PA';
+  } else {
+    data.networkType = /PA/i.test(text.slice(0,2000)) ? 'PA' : 'DP';
+  }
+
+  const cy = text.match(/Cycle time:\s*Min:\s*([\d.]+\s*\w+),?\s*Avg:\s*([\d.]+\s*\w+),?\s*Max:\s*([\d.]+\s*\w+)/i);
+  if (cy) {
+    data.network.cycleMin = cy[1].trim();
+    data.network.cycleAvg = cy[2].trim();
+    data.network.cycleMax = cy[3].trim();
+  }
+
+  data.deviations = /\bDeviations found\b/i.test(text);
+
+  // Tested subjects (seções 6.1 a 6.7)
+  function parseSubjList(label){
+    // Escape label for regex, then match everything after the label until end of line
+    const escaped = label.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
+    // Try multiple patterns: "Label: value" or "Label value" on same or next line
+    const patterns = [
+      new RegExp(escaped + '\\s*[:\\-]?\\s*([^\\n]+)', 'i'),
+      new RegExp(escaped + '[\\s\\S]*?(?::|\\n)\\s*([^\\n]+)', 'i')
+    ];
+    for (const re of patterns) {
+      const m = text.match(re);
+      if (!m) continue;
+      const v = m[1].trim();
+      if (/^none\b/i.test(v) || v === '—' || v === '-') return [];
+      const nums = v.split(/[,;\s]+/).map(s => parseInt(s,10)).filter(n => !isNaN(n) && n >= 0 && n <= 126);
+      if (nums.length > 0) return nums;
+    }
+    return [];
+  }
+
+  data.lostSlaves       = parseSubjList('Slaves that have been lost at least one time');
+  data.diagSlaves       = parseSubjList('Slaves that generated diagnostics while in data exchange');
+  data.illegalDevices   = parseSubjList('Devices that have caused illegal responses');
+  data.reservedDevice   = parseSubjList('Device found on reserved address 126');
+  data.retrySlaves      = parseSubjList('Slaves that caused retries');
+  data.syncSlaves       = parseSubjList('Slaves that caused syncs');
+  data.paramSlaves      = parseSubjList('Parameters have been sent to the following slaves');
+
+  // Address list
+  const al = text.match(/Address list[\s\S]*?(?==== PAGE ===|\n\d+\s+Bar graph|\n\d+\s+Device details|\nBar graph|\nDevice details)/i);
+  if (al) {
+    const lines = al[0].split('\n').map(l => l.trim()).filter(Boolean);
+    for (const ln of lines){
+      const m = ln.match(/^(\d+)\s+(\d{3,4}|-)\s+(.+?)\s{2,}(.+?)(?:\s{2,}(\S+\.GSD))?$/i)
+              || ln.match(/^(\d+)\s+(-)\s+(-)\s+(\w+)\s+(-)?$/i);
+      if (m) {
+        data.addresses.push({
+          addr: parseInt(m[1],10),
+          identNo: m[2] === '-' ? null : m[2],
+          manufacturer: m[3] === '-' ? null : m[3].trim(),
+          model: m[4] === '-' ? null : m[4].trim(),
+          gsd: m[5] || null
+        });
+      }
+    }
+  }
+
+  // Device details
+  const blocks = text.split(/Address:\s*/i).slice(1);
+  for (const blk of blocks){
+    const addrM = blk.match(/^(\d+)/);
+    if (!addrM) continue;
+    const addr = parseInt(addrM[1],10);
+    const dev = {
+      addr,
+      deviceName: (blk.match(/Device name:\s*([^\n]+)/i)||[])[1]?.trim() || '',
+      deviceType: (blk.match(/Device type:\s*([^\n]+)/i)||[])[1]?.trim() || '',
+      identNo: (blk.match(/IdentNo:\s*([^\n]+)/i)||[])[1]?.trim() || '',
+      manufacturer: (blk.match(/Manufacturer:\s*([^\n]+)/i)||[])[1]?.trim() || '',
+      model: (blk.match(/Model name:\s*([^\n]+)/i)||[])[1]?.trim() || '',
+      ioStr: (blk.match(/I\/O length \(bytes\):\s*([^\n]+)/i)||[])[1]?.trim() || '',
+      diagDx: parseInt((blk.match(/Diag count while DX:\s*(\d+)/i)||[])[1] || '0', 10),
+      retryCount: parseInt((blk.match(/Total retry count:\s*(\d+)/i)||[])[1] || '0', 10),
+      timesLost: parseInt((blk.match(/Times lost:\s*(\d+)/i)||[])[1] || '0', 10),
+    };
+    if (!data.devices.find(d => d.addr === addr)){
+      data.devices.push(dev);
+    }
+  }
+
+  // PA Signal Level e Jitter — buscar em blocos maiores e com regex mais flexível
+  const sigBlock = text.match(/PA signal level[s]?[\s\S]{0,3000}/i);
+  if (sigBlock) extractAddrValuePairs(sigBlock[0], data.signals, false);
+  const jitBlock = text.match(/PA[\s-]?Jitter[\s\S]{0,3000}/i);
+  if (jitBlock) extractAddrValuePairs(jitBlock[0], data.jitters, true);
+
+  return data;
+}
+
+function extractAddrValuePairs(block, target, allowDecimal){
+  const re = allowDecimal
+    ? /\b(\d{1,3})\s+(\d+\.?\d*)\b/g
+    : /\b(\d{1,3})\s+(\d{2,4})\b/g;
+  let m;
+  while ((m = re.exec(block)) !== null){
+    const addr = parseInt(m[1],10);
+    const val = parseFloat(m[2]);
+    if (addr < 0 || addr > 126) continue;
+    if (allowDecimal){
+      if (val < 0 || val > 50) continue;
+      if (target[addr] === undefined) target[addr] = val;
+    } else {
+      if (val < 50 || val > 1500) continue;
+      if (target[addr] === undefined) target[addr] = val;
+    }
+  }
+}
+
+/* ============================================================
+   TAG MAPPING
+   ============================================================ */
+function loadTags(){
+  if (!state.data) return;
+  const key = `bp_profibus_tags_${state.data.network.name || 'default'}`;
+  try {
+    const s = localStorage.getItem(key);
+    if (s) state.tags = JSON.parse(s);
+  } catch{}
+}
+function saveTags(){
+  if (!state.data) return;
+  const key = `bp_profibus_tags_${state.data.network.name || 'default'}`;
+  try { localStorage.setItem(key, JSON.stringify(state.tags)); } catch{}
+}
+
+function buildTagList(){
+  if (!state.data) return;
+  const addrSet = new Set();
+  state.data.devices.forEach(d => addrSet.add(d.addr));
+  state.data.addresses.forEach(a => addrSet.add(a.addr));
+  Object.keys(state.data.signals).forEach(a => addrSet.add(parseInt(a,10)));
+  const addrs = Array.from(addrSet).sort((a,b) => a - b);
+
+  tagListEl.innerHTML = '';
+  for (const addr of addrs){
+    const dev = state.data.devices.find(d => d.addr === addr) || {};
+    const ai  = state.data.addresses.find(a => a.addr === addr) || {};
+    const info = [
+      ai.manufacturer || dev.manufacturer || '',
+      ai.model || dev.model || (dev.deviceType || '')
+    ].filter(Boolean).join(' · ');
+
+    const row = document.createElement('div');
+    row.className = 'tag-row';
+    row.innerHTML = `
+      <span class="addr">${addr}</span>
+      <span class="info">${esc(info) || '—'}</span>
+      <input type="text" placeholder="Ex: FT-101A" data-addr="${addr}" value="${esc(state.tags[addr] || '')}">
+    `;
+    const inp = row.querySelector('input');
+    inp.addEventListener('input', e => {
+      const a = parseInt(e.target.dataset.addr, 10);
+      const v = e.target.value.trim().toUpperCase();
+      e.target.value = v;
+      if (v) state.tags[a] = v;
+      else delete state.tags[a];
+      saveTags();
+      tagCountEl.textContent = Object.keys(state.tags).length;
+    });
+    tagListEl.appendChild(row);
+  }
+  tagCountEl.textContent = Object.keys(state.tags).length;
+}
+
+/* Tag search/filter */
+document.addEventListener('input', e => {
+  if (e.target.id !== 'tagSearchInput') return;
+  const q = e.target.value.toLowerCase().trim();
+  const rows = tagListEl.querySelectorAll('.tag-row');
+  rows.forEach(row => {
+    if (!q) { row.style.display = ''; return; }
+    const text = row.textContent.toLowerCase();
+    row.style.display = text.includes(q) ? '' : 'none';
+  });
+});
+
+/* ============================================================
+   UTILS
+   ============================================================ */
+function esc(s){
+  return String(s == null ? '' : s)
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+function fmtDate(iso){
+  if (!iso) return '—';
+  try { const [y,m,d] = iso.split('-'); return `${d}/${m}/${y}`; } catch { return iso; }
+}
+
+/* ============================================================
+   RENDER DO RELATÓRIO (estilo ProfiTrace)
+   ============================================================ */
+function renderReport(){
+  if (!state.data) return;
+  const d = state.data;
+  const m = state.meta;
+  const tags = state.tags;
+
+  // Análise de qualidade
+  const sigEntries = Object.entries(d.signals).map(([a,v]) => ({addr:parseInt(a,10), v, q:signalQuality(v)}));
+  const jitEntries = Object.entries(d.jitters).map(([a,v]) => ({addr:parseInt(a,10), v, q:jitterQuality(v)}));
+  const recs = generateRecommendations(d, tags, sigEntries, jitEntries);
+
+  // Deviations já vem do parsing (caixa "Deviations found")
+  const deviations = d.deviations || d.diagSlaves.length > 0 || d.lostSlaves.length > 0 || d.retrySlaves.length > 0
+                     || sigEntries.some(s => s.q === 'crit') || jitEntries.some(j => j.q === 'crit')
+                     || Object.entries(d.idleVoltages || {}).some(([,v]) => idleQuality(v) === 'crit');
+
+  // Contagem de páginas — calcular ANTES de renderizar
+  let pageNum = 0;
+  const allAddrs = new Set();
+  d.devices.forEach(x => allAddrs.add(x.addr));
+  d.addresses.forEach(x => allAddrs.add(x.addr));
+  Object.keys(d.signals).forEach(a => allAddrs.add(parseInt(a,10)));
+  const sortedAddrs = Array.from(allAddrs).sort((a,b)=>a-b);
+
+  const devicesPerPage = 4;
+  const devicePagesNum = Math.ceil(sortedAddrs.length / devicesPerPage) || 0;
+  const totalPages = 6 + devicePagesNum + 1 + 1; // +1 glossário
+
+  function pageWrap(content){
+    pageNum++;
+    return `
+      <section class="pt-page">
+        <div class="pt-page-head">
+          <div class="pt-logo">
+            <svg width="28" height="28" viewBox="0 0 24 24" fill="none">
+              <circle cx="12" cy="12" r="3" fill="#fff"/>
+              <path d="M12 3 L13 8 L12 8.5 L11 8 Z" fill="#fff"/>
+              <path d="M12 21 L13 16 L12 15.5 L11 16 Z" fill="#fff"/>
+              <path d="M3 12 L8 13 L8.5 12 L8 11 Z" fill="#fff"/>
+              <path d="M21 12 L16 13 L15.5 12 L16 11 Z" fill="#fff"/>
+              <path d="M5.5 5.5 L9 8 L8.5 8.5 L8 8.5 Z" fill="#fff"/>
+              <path d="M18.5 5.5 L15 8 L15.5 8.5 L16 8.5 Z" fill="#fff"/>
+              <path d="M5.5 18.5 L9 16 L8.5 15.5 L8 15.5 Z" fill="#fff"/>
+              <path d="M18.5 18.5 L15 16 L15.5 15.5 L16 15.5 Z" fill="#fff"/>
+            </svg>
+          </div>
+          <div class="pt-page-title">
+            <h1>Relatório detalhado de rede Profibus ${d.networkType || 'PA'}</h1>
+            <small>Gerado por: <b>BIO·PROFIBUS</b></small>
+          </div>
+        </div>
+        <div class="pt-page-body">
+          ${content}
+        </div>
+        <footer class="pt-page-foot">
+          <div class="pt-page-foot-left">
+            <span class="pt-page-foot-disclaimer">A utilização deste documento implica aceitação dos termos de uso na última página.</span>
+            <div class="pt-sig-row">
+              <div class="pt-sig-cell">
+                <label>Nome:</label>
+                <div class="line">${esc(m.tecnico || '')}</div>
+              </div>
+              <div class="pt-sig-cell">
+                <label>Empresa:</label>
+                <div class="line">${esc(m.cliente || '')}</div>
+              </div>
+              <div class="pt-sig-cell">
+                <label>Visto:</label>
+                <div class="line">&nbsp;</div>
+              </div>
+            </div>
+          </div>
+          <div class="pt-page-foot-right">
+            <span>${fmtDate(m.data)}</span>
+            <span class="pt-page-num">Página ${pageNum} / ${totalPages}</span>
+          </div>
+        </footer>
+      </section>
+    `;
+  }
+
+  // ==================================================
+  // PÁGINA 1: Seções 1 a 5
+  // ==================================================
+  const projectDetails = m.area || (m.cliente && m.planta ? `${m.cliente} — ${m.planta}` : '');
+  const remarks = m.comentarios || 'Nenhum';
+
+  const page1 = pageWrap(`
+    <div class="pt-section">
+      <h2>1 Geral</h2>
+      <div class="pt-fields">
+        <div class="lbl">Local:</div><div class="val">${esc(d.network.location || m.cliente || '—')}</div>
+        <div class="lbl">Nome da rede:</div><div class="val">${esc(d.network.name || '—')}</div>
+        <div class="lbl">Início da medição:</div><div class="val">${esc(d.network.startTime || '—')}</div>
+        <div class="lbl">Duração da medição:</div><div class="val">${esc(d.network.duration || '—')}</div>
+        <div class="lbl">Detalhes do projeto:</div><div class="val"></div>
+      </div>
+      <div class="pt-box">${esc(projectDetails || 'Sem informações adicionais')}</div>
+      <div class="pt-box-caption">(O texto acima é definido pelo técnico responsável)</div>
+    </div>
+
+    <div class="pt-section">
+      <h2>2 Ferramentas utilizadas</h2>
+      <div class="pt-fields">
+        <div class="lbl">Equipamento ProfiCore (S/N):</div><div class="val">${esc(d.network.proficore || '—')}</div>
+        <div class="lbl">Versão do ProfiTrace:</div><div class="val">${esc(d.network.version || '—')}</div>
+      </div>
+    </div>
+
+    <div class="pt-section">
+      <h2>3 Propriedades da rede</h2>
+      <div class="pt-fields">
+        <div class="lbl">Velocidade de transmissão:</div><div class="val">${esc(d.network.speed || '—')}</div>
+        <div class="lbl">Número de mestres:</div><div class="val">${d.network.masters}</div>
+        <div class="lbl">Número de escravos:</div><div class="val">${d.network.slaves}</div>
+        <div class="lbl">Tempo de ciclo:</div><div class="val">Mín: ${esc(d.network.cycleMin)||'—'} · Médio: ${esc(d.network.cycleAvg)||'—'} · Máx: ${esc(d.network.cycleMax)||'—'}</div>
+      </div>
+    </div>
+
+    <div class="pt-section">
+      <h2>4 Conclusão</h2>
+      <div class="pt-conclusion">
+        <div class="pt-check-row ${!deviations?'active':''}">
+          <span class="pt-check">${!deviations?'✓':''}</span>
+          <span>Nenhum desvio encontrado</span>
+        </div>
+        <div class="pt-check-row ${deviations?'active':''}">
+          <span class="pt-check ${deviations?'checked':''}">${deviations?'✗':''}</span>
+          <span>Desvios encontrados</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="pt-section">
+      <h2>5 Comentários</h2>
+      <div class="pt-box">${esc(remarks)}</div>
+      <div class="pt-box-caption">(O texto acima é definido pelo técnico responsável)</div>
+    </div>
+  `);
+
+  // ==================================================
+  // PÁGINA 2: Seção 6 — Tested subjects
+  // ==================================================
+  function subjRow(num, label, list, note){
+    const ok = list.length === 0;
+    const valStr = ok ? 'Nenhum' : list.join(', ');
+    return `
+      <div class="pt-subj">
+        <div class="desc">
+          <span class="main"><b>${num}</b> ${label}</span>
+          ${note ? `<span class="note">${note}</span>` : ''}
+        </div>
+        <div class="res">
+          <span class="val">${valStr}</span>
+          <span class="icon ${ok?'ok':'fail'}">${ok?'✓':'✗'}</span>
+        </div>
+      </div>
+    `;
+  }
+
+  const page2 = pageWrap(`
+    <div class="pt-section">
+      <h2>6 Itens analisados</h2>
+      <div class="pt-subjects">
+        ${subjRow('6.1', 'Escravos perdidos pelo menos uma vez', d.lostSlaves)}
+        ${subjRow('6.2', 'Escravos que geraram diagnóstico em data exchange', d.diagSlaves)}
+        ${subjRow('6.3', 'Dispositivos que causaram respostas ilegais', d.illegalDevices)}
+        ${subjRow('6.4', 'Dispositivo no endereço reservado 126', d.reservedDevice)}
+        ${subjRow('6.5', 'Escravos que causaram retentativas (retries)', d.retrySlaves)}
+        ${subjRow('6.6', 'Escravos que causaram syncs', d.syncSlaves, 'Alguns DCS ABB enviam syncs continuamente — sem efeito na comunicação.')}
+        ${subjRow('6.7', 'Parâmetros enviados aos seguintes escravos', d.paramSlaves)}
+      </div>
+    </div>
+  `);
+
+  // ==================================================
+  // PÁGINA 3: Seção 7 — Live List
+  // ==================================================
+  const page3 = pageWrap(`
+    <div class="pt-section">
+      <h2>7 Live list</h2>
+      ${renderLiveList(d, tags)}
+
+      <h3 style="margin-top:16px">Legenda</h3>
+      <div class="pt-legend">
+        <div class="lg-item"><span class="swatch" style="background:#fff"></span>Sem atividade</div>
+        <div class="lg-item"><span class="swatch-num" style="background:#a3d8a8">1</span>Estação mestre</div>
+        <div class="lg-item"><span class="swatch" style="background:#71c14a"></span>Em troca de dados (data exchange)</div>
+        <div class="lg-item"><span class="swatch-num" style="background:#71c14a">3</span>Estação escrava</div>
+        <div class="lg-item"><span class="swatch" style="background:#f5d24a"></span>Dispositivo perdido</div>
+        <div class="lg-item"><span class="swatch" style="background:#e95f5f"></span>Erro de parâmetro / configuração</div>
+      </div>
+    </div>
+  `);
+
+  // ==================================================
+  // PÁGINA 4: Seção 8 — Address list
+  // ==================================================
+  let addrRows = '';
+  for (const a of sortedAddrs){
+    const dev = d.devices.find(x => x.addr === a) || {};
+    const ai  = d.addresses.find(x => x.addr === a) || {};
+    addrRows += `
+      <tr>
+        <td class="num"><b>${a}</b></td>
+        <td class="center" style="color:var(--bp-green-dark);font-weight:600">${esc(tags[a] || '—')}</td>
+        <td>${esc(ai.identNo || dev.identNo || '—')}</td>
+        <td>${esc(ai.manufacturer || dev.manufacturer || '—')}</td>
+        <td>${esc(ai.model || dev.model || dev.deviceType || '—')}</td>
+        <td>${esc(ai.gsd || '—')}</td>
+      </tr>
+    `;
+  }
+  const page4 = pageWrap(`
+    <div class="pt-section">
+      <h2>8 Lista de endereços</h2>
+      <table class="pt-table">
+        <thead>
+          <tr>
+            <th>End.</th>
+            <th class="center">TAG</th>
+            <th>IdentNo</th>
+            <th>Fabricante</th>
+            <th>Modelo / Tipo</th>
+            <th>Arquivo GSD</th>
+          </tr>
+        </thead>
+        <tbody>${addrRows}</tbody>
+      </table>
+    </div>
+  `);
+
+  // ==================================================
+  // PÁGINA 5: Seção 9 — Bar Graph (PA signal level)
+  // ==================================================
+  const page5 = pageWrap(`
+    <div class="pt-section">
+      <h2>9 Gráfico de barras</h2>
+      <h3>9.1 Segmento (Segmento 1)</h3>
+      <div class="pt-fields" style="margin-bottom:12px"><div class="lbl">Tipo de segmento:</div><div class="val">&lt;não definido&gt;</div></div>
+
+      <h4>9.1.1 Ponto de medição (Ponto de medição 1)</h4>
+      <div class="pt-bargraph">
+        <div class="pt-bargraph-title">Nível de sinal ${d.networkType === 'DP' ? 'DP (AB Diff)' : 'PA'}</div>
+        <div class="pt-bargraph-sub">Segmento / Ponto de medição: Segmento 1 / Ponto de medição 1 (1/1)</div>
+        <div class="pt-bargraph-svg-wrap">
+          ${renderBarChart(sigEntries, {
+            unit: d.networkType === 'DP' ? 'V' : 'mV',
+            yMax: d.networkType === 'DP' ? 8 : 1200,
+            yStep: d.networkType === 'DP' ? 1 : 200,
+            referenceLines:[
+              {y: signalLimits().warn_min, color:'#d63838', dash:'2,2'}
+            ],
+            tags
+          })}
+        </div>
+      </div>
+    </div>
+  `);
+
+  // ==================================================
+  // PÁGINA 6: Seção 9 (cont) — Jitter ou Idle Voltage
+  // ==================================================
+  const hasJitter = jitEntries.length > 0;
+  const idleEntries = Object.entries(d.idleVoltages || {}).map(([a,v]) => ({addr:parseInt(a,10), v, q:idleQuality(v)}));
+  const hasIdle = idleEntries.length > 0;
+
+  let page6Content = '';
+  if (hasJitter) {
+    page6Content += `
+      <div class="pt-bargraph">
+        <div class="pt-bargraph-title">Jitter ${d.networkType === 'DP' ? 'DP' : 'PA'}</div>
+        <div class="pt-bargraph-sub">Segmento / Ponto de medição: Segmento 1 / Ponto de medição 1 (1/1)</div>
+        <div class="pt-bargraph-svg-wrap">
+          ${renderBarChart(jitEntries, {
+            unit:'µs',
+            yMax:9,
+            yStep:1,
+            inverted:true,
+            referenceLines:[
+              {y:JITTER_LIMITS.warn_max, color:'#d63838', dash:'2,2'}
+            ],
+            tags
+          })}
+        </div>
+      </div>
+    `;
+  }
+  if (hasIdle) {
+    page6Content += `
+      <div class="pt-bargraph">
+        <div class="pt-bargraph-title">Tensão Idle por estação</div>
+        <div class="pt-bargraph-sub">Valor médio da tensão de repouso (idle) da linha — faixa ideal: ${DP_IDLE_LIMITS.good_min}V a ${DP_IDLE_LIMITS.good_max}V</div>
+        <div class="pt-bargraph-svg-wrap">
+          ${renderBarChart(idleEntries, {
+            unit:'V',
+            yMax:2.0,
+            yStep:0.2,
+            inverted:false,
+            referenceLines:[
+              {y:DP_IDLE_LIMITS.good_min, color:'#2ea84a', dash:'3,2'},
+              {y:DP_IDLE_LIMITS.good_max, color:'#2ea84a', dash:'3,2'},
+              {y:DP_IDLE_LIMITS.warn_max, color:'#d63838', dash:'2,2'}
+            ],
+            tags,
+            qualityFn: idleQuality
+          })}
+        </div>
+      </div>
+    `;
+  }
+  if (!hasJitter && !hasIdle) {
+    page6Content = '<p style="text-align:center;color:#666;padding:30px;font-style:italic">Dados de jitter e tensão idle não disponíveis neste arquivo.</p>';
+  }
+
+  const page6 = pageWrap(`
+    <div class="pt-section">
+      <h2>9 Gráfico de barras (continuação)</h2>
+      ${page6Content}
+    </div>
+  `);
+
+  // ==================================================
+  // PÁGINAS 7+: Seção 10 — Device details (4 devices por página)
+  // ==================================================
+  const devicePages = [];
+  for (let i = 0; i < sortedAddrs.length; i += devicesPerPage){
+    const slice = sortedAddrs.slice(i, i + devicesPerPage);
+    let body = '';
+    if (i === 0){
+      body += `
+        <div class="pt-section">
+          <h2>10 Detalhamento por dispositivo</h2>
+          <h3>10.1 Segmento (Segmento 1)</h3>
+          <div class="pt-fields" style="margin-bottom:12px"><div class="lbl">Tipo de segmento:</div><div class="val">&lt;não definido&gt;</div></div>
+          <h4>10.1.1 Ponto de medição (Ponto de medição 1)</h4>
+        </div>
+      `;
+    }
+    for (const a of slice){
+      body += renderDeviceBlock(a, d, tags);
+    }
+    devicePages.push(pageWrap(body));
+  }
+
+  // ==================================================
+  // PÁGINA FINAL: Recomendações
+  // ==================================================
+  const finalPage = pageWrap(`
+    <div class="pt-section">
+      <h2>11 Recomendações de manutenção</h2>
+      ${recs.length ? `
+        <div class="pt-recommendations">
+          <ol>${recs.map(r => `<li>${r}</li>`).join('')}</ol>
+        </div>
+      ` : `<div class="pt-no-issues">✓ Nenhuma ação corretiva necessária no momento. Recomenda-se monitoramento periódico.</div>`}
+    </div>
+
+    ${d._confidence ? `
+    <div class="pt-section" style="margin-top:20px">
+      <h2>12 Confiabilidade dos dados</h2>
+      <p style="font-size:9pt;color:#333;margin-bottom:8px">
+        Este relatório foi gerado a partir dos dados <strong>realmente encontrados</strong> no arquivo.
+        Nenhum valor foi estimado ou assumido — campos sem informação aparecem como "—".
+      </p>
+      <div class="pt-fields">
+        <div class="lbl">Baud rate:</div><div class="val">${d._confidence.baudFound ? '✓ Encontrado no arquivo' : '✗ Não encontrado'}</div>
+        <div class="lbl">Número serial ProfiCore:</div><div class="val">${d._confidence.serialFound ? '✓ Encontrado' : '✗ Não encontrado'}</div>
+        <div class="lbl">Estações detectadas:</div><div class="val">${d._confidence.stationsFound} de ${d.network.slaves + d.network.masters} identificadas</div>
+        <div class="lbl">Tensão AB Diff:</div><div class="val">${d._confidence.signalsFound} leituras válidas extraídas</div>
+        <div class="lbl">Tensão Idle:</div><div class="val">${d._confidence.idleFound} leituras válidas extraídas</div>
+      </div>
+      ${d._confidence.warnings.length > 0 ? `
+        <h3 style="margin-top:10px">Observações do processamento:</h3>
+        <ul style="font-size:9pt;color:#555;margin-left:18px;margin-top:4px">
+          ${d._confidence.warnings.map(w => `<li>${esc(w)}</li>`).join('')}
+        </ul>
+      ` : ''}
+    </div>
+    ` : ''}
+
+    <div class="pt-section" style="margin-top:30px">
+      <h2 style="font-size:11pt">Aviso legal</h2>
+      <p style="font-size:9pt;line-height:1.5;color:#333">
+        Este relatório foi gerado automaticamente a partir de medição feita com o ProfiTrace.
+        Os dados refletem apenas o instante e a duração da medição informados na seção 1.
+        A análise não substitui inspeção física no campo. Recomenda-se a validação dos achados
+        por técnico habilitado em redes industriais Profibus antes de qualquer intervenção.
+      </p>
+    </div>
+
+    <div style="margin-top:30px;text-align:center;font-size:8pt;color:#888;border-top:1px solid #ccc;padding-top:8px">
+      — Fim do relatório —
+    </div>
+  `);
+
+  // ==================================================
+  // PÁGINA GLOSSÁRIO
+  // ==================================================
+  const glossaryPage = pageWrap(`
+    <div class="pt-section">
+      <h2>Glossário de termos técnicos</h2>
+      <p style="font-size:9pt;color:#555;margin-bottom:12px">
+        Os termos abaixo estão em inglês pois são exibidos assim no software ProfiTrace e na norma IEC 61158.
+        Manter a mesma nomenclatura evita confusão durante a manutenção em campo.
+      </p>
+      <table class="pt-table">
+        <thead><tr><th style="width:160px">Termo</th><th>Significado</th></tr></thead>
+        <tbody>
+          <tr><td><b>Master</b></td><td>Dispositivo mestre — geralmente o CLP ou controlador que coordena a comunicação na rede.</td></tr>
+          <tr><td><b>Slave</b></td><td>Dispositivo escravo — instrumento de campo (transmissor, válvula, posicionador) que responde ao mestre.</td></tr>
+          <tr><td><b>Data Exchange</b></td><td>Troca cíclica de dados entre mestre e escravo — é a comunicação normal de processo.</td></tr>
+          <tr><td><b>Baud Rate</b></td><td>Velocidade de comunicação da rede em bits por segundo. DP comum: 93.75 kbps a 12 Mbps. PA: 31.25 kbps.</td></tr>
+          <tr><td><b>AB Diff Voltage</b></td><td>Tensão diferencial entre as linhas A e B do cabo. Indica a qualidade do sinal elétrico. Faixa DP ideal: ${DP_SIGNAL_LIMITS.good_min}V a ${DP_SIGNAL_LIMITS.high_max}V.</td></tr>
+          <tr><td><b>Idle Voltage</b></td><td>Tensão de repouso da linha quando nenhum dispositivo está transmitindo. Ideal: ${DP_IDLE_LIMITS.good_min}V a ${DP_IDLE_LIMITS.good_max}V.</td></tr>
+          <tr><td><b>Jitter</b></td><td>Variação no tempo de resposta do sinal. Jitter alto indica instabilidade na comunicação. Limite: ${JITTER_LIMITS.warn_max} µs.</td></tr>
+          <tr><td><b>Retry</b></td><td>Retentativa automática do mestre quando um escravo não responde. Retries frequentes indicam problemas no meio físico.</td></tr>
+          <tr><td><b>Diagnostics (Diag)</b></td><td>Mensagens de diagnóstico enviadas pelo escravo ao mestre informando falhas ou condições anormais.</td></tr>
+          <tr><td><b>Live List</b></td><td>Mapa visual de todos os endereços (0 a 126) mostrando quais estações estão ativas na rede.</td></tr>
+          <tr><td><b>GSD</b></td><td>Arquivo de descrição do dispositivo (Generic Station Description) — contém os parâmetros de configuração do escravo.</td></tr>
+          <tr><td><b>Times Lost</b></td><td>Quantas vezes o escravo perdeu comunicação durante a medição. Qualquer valor > 0 é crítico.</td></tr>
+          <tr><td><b>Diag count while DX</b></td><td>Quantidade de diagnósticos gerados pelo escravo enquanto estava em troca de dados — indica instabilidade.</td></tr>
+          <tr><td><b>New Station</b></td><td>Estação detectada na rede que não está parametrizada — pode ser um dispositivo novo ou desconfigurado.</td></tr>
+          <tr><td><b>ProfiCore</b></td><td>Módulo de hardware da Procentec usado para capturar os dados de comunicação da rede Profibus.</td></tr>
+          <tr><td><b>Cycle Time</b></td><td>Tempo para o mestre completar uma varredura de todos os escravos. Tempos longos podem indicar rede congestionada.</td></tr>
+          <tr><td><b>Sync</b></td><td>Comando de sincronização enviado pelo mestre. Em alguns CLPs (como ABB) é normal e contínuo.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  `);
+
+  let html = page1 + page2 + page3 + page4 + page5 + page6 + devicePages.join('') + finalPage + glossaryPage;
+  reportDoc.innerHTML = html;
+}
+
+function renderDeviceBlock(addr, d, tags){
+  const dev = d.devices.find(x => x.addr === addr) || {addr};
+  const ai  = d.addresses.find(x => x.addr === addr) || {};
+  const sig = d.signals[addr];
+  const jit = d.jitters[addr];
+  const idle = (d.idleVoltages || {})[addr];
+  const tag = tags[addr];
+  const sQ = signalQuality(sig);
+  const jQ = jitterQuality(jit);
+  const iQ = idleQuality(idle);
+  const isMaster = (dev.deviceType||'').toLowerCase().includes('master');
+
+  let critical = false, warning = false;
+  if (sQ === 'crit' || jQ === 'crit' || iQ === 'crit' || dev.timesLost > 0) critical = true;
+  else if (sQ === 'warn' || jQ === 'warn' || iQ === 'warn' || dev.diagDx > 0 || dev.retryCount > 0) warning = true;
+
+  const headClass = critical ? 'crit' : (warning ? 'warn' : '');
+  const pillKind  = critical ? 'crit' : (warning ? 'warn' : 'ok');
+  const pillTxt   = critical ? 'Crítico' : (warning ? 'Atenção' : 'OK');
+
+  const manufacturer = ai.manufacturer || dev.manufacturer || '—';
+  const model = ai.model || dev.model || dev.deviceType || '—';
+  const identNo = ai.identNo || dev.identNo || '—';
+
+  // TRAVA: Labels de status em português, baseados SOMENTE nos dados reais
+  function statusLabel(q) {
+    if (q === 'ok') return 'OK';
+    if (q === 'warn') return 'Atenção';
+    if (q === 'crit') return 'Crítico';
+    return 'Sem dados';
+  }
+
+  return `
+    <div class="pt-device">
+      <div class="pt-device-head ${headClass}">
+        <div class="h-left">
+          <span class="h-addr">Endereço: ${addr}</span>
+          ${tag ? `<span class="h-tag">TAG: ${esc(tag)}</span>` : ''}
+        </div>
+        <span class="h-pill ${pillKind}">${pillTxt}</span>
+      </div>
+      <div class="pt-device-fields">
+        <div class="lbl">Nome do dispositivo:</div><div class="val">${esc(dev.deviceName || (isMaster?'Mestre':'Escravo'))}</div>
+        <div class="lbl">Tipo:</div><div class="val">${esc(dev.deviceType || (isMaster?'Master':'Slave'))}</div>
+        ${identNo!=='—'?`<div class="lbl">IdentNo:</div><div class="val">${esc(identNo)}</div>`:''}
+        ${manufacturer!=='—'?`<div class="lbl">Fabricante:</div><div class="val">${esc(manufacturer)}</div>`:''}
+        ${model!=='—'?`<div class="lbl">Modelo:</div><div class="val">${esc(model)}</div>`:''}
+        ${dev.ioStr?`<div class="lbl">I/O (bytes):</div><div class="val">${esc(dev.ioStr)}</div>`:''}
+        ${sig!=null?`<div class="lbl">Tensão AB Diff:</div><div class="val">${sig} ${signalUnit()} — ${statusLabel(sQ)}</div>`:`<div class="lbl">Tensão AB Diff:</div><div class="val" style="color:#999">— (não disponível)</div>`}
+        ${idle!=null?`<div class="lbl">Tensão Idle:</div><div class="val">${idle} V — ${statusLabel(iQ)}</div>`:''}
+        ${jit!=null?`<div class="lbl">Jitter:</div><div class="val">${jit} µs — ${statusLabel(jQ)}</div>`:''}
+        <div class="lbl">Diag. count em DX:</div><div class="val">${dev.diagDx||0}</div>
+        <div class="lbl">Total de retries:</div><div class="val">${dev.retryCount||0}</div>
+        <div class="lbl">Vezes perdido:</div><div class="val">${dev.timesLost||0}</div>
+        ${dev.processCount!=null?`<div class="lbl">Process count:</div><div class="val">${dev.processCount}</div>`:''}
+      </div>
+    </div>
+  `;
+}
+
+/* ============================================================
+   LIVE LIST
+   ============================================================ */
+function renderLiveList(d, tags){
+  const masters = new Set();
+  d.devices.forEach(x => { if ((x.deviceType||'').toLowerCase().includes('master')) masters.add(x.addr); });
+  if (masters.size === 0 && d.network.masters > 0){
+    if (d.devices.find(x => x.addr === 1)) masters.add(1);
+  }
+  const slaves = new Set();
+  d.devices.forEach(x => { if (!masters.has(x.addr)) slaves.add(x.addr); });
+  d.addresses.forEach(x => slaves.add(x.addr));
+  Object.keys(d.signals).forEach(a => slaves.add(parseInt(a,10)));
+  for (const mst of masters) slaves.delete(mst);
+
+  // Header
+  let html = '<table class="pt-livelist"><thead><tr><th></th>';
+  for (let c=0; c<10; c++) html += `<th>${c}</th>`;
+  html += '</tr></thead><tbody>';
+
+  for (let row=0; row<13; row++){
+    const baseAddr = row * 10;
+    html += `<tr><td class="row-h">${baseAddr}</td>`;
+    for (let col=0; col<10; col++){
+      const a = baseAddr + col;
+      if (a > 126){
+        html += '<td class="invisible"></td>';
+        continue;
+      }
+      const isMaster = masters.has(a);
+      const isSlave = slaves.has(a);
+      const isReserved = a === 126;
+      let cls = 'empty';
+      let label = a.toString();
+
+      if (isMaster){
+        cls = 'master';
+        label = tags[a] ? esc(tags[a]) : a;
+      } else if (isSlave){
+        const dev = d.devices.find(x => x.addr === a) || {};
+        const ai  = d.addresses.find(x => x.addr === a) || {};
+        const sq = signalQuality(d.signals[a]);
+        const hasDiag = dev.diagDx > 0 || dev.retryCount > 0;
+        if (dev.timesLost>0 || sq === 'crit') cls = 'slave-crit';
+        else if (hasDiag || sq === 'warn') cls = 'slave-warn';
+        else cls = 'slave-ok';
+        label = tags[a] ? esc(tags[a]) : (ai.model || dev.model || a);
+        // Encurtar labels muito longos
+        if (typeof label === 'string' && label.length > 9) label = label.substring(0,9);
+      } else if (isReserved){
+        cls = 'reserved';
+        label = a;
+      }
+      html += `<td class="${cls}" title="Endereço ${a}${tags[a]?` · ${tags[a]}`:''}">${label}</td>`;
+    }
+    html += '</tr>';
+  }
+  html += '</tbody></table>';
+  return html;
+}
+
+/* ============================================================
+   BAR CHART (estilo ProfiTrace)
+   ============================================================ */
+function renderBarChart(entries, opts){
+  if (!entries.length) return '<p style="text-align:center;color:#666;padding:30px">Sem dados disponíveis.</p>';
+  const sorted = entries.slice().sort((a,b) => a.addr - b.addr);
+
+  const yMax = opts.yMax;
+  const yStep = opts.yStep;
+  const yTicks = Math.round(yMax / yStep);
+
+  const W = 700, H = 230;
+  const padL = 56, padR = 14, padT = 14, padB = 38;
+  const chartW = W - padL - padR;
+  const chartH = H - padT - padB;
+  const n = sorted.length;
+  const barGap = 6;
+  const barW = Math.max(8, (chartW - (n-1)*barGap) / n);
+  const yScale = v => padT + chartH - (v / yMax) * chartH;
+
+  // Gridlines + labels Y
+  let grid = '';
+  for (let i=0; i<=yTicks; i++){
+    const v = yStep * i;
+    const y = yScale(v);
+    grid += `<line x1="${padL}" x2="${W-padR}" y1="${y}" y2="${y}" stroke="${i===0?'#000':'#bbb'}" stroke-width="${i===0?'1':'0.5'}" stroke-dasharray="${i===0?'0':'1,2'}"/>`;
+    grid += `<text x="${padL-6}" y="${y+3.5}" text-anchor="end" font-size="9" fill="#000" font-family="Arial">${v}${opts.unit}</text>`;
+  }
+
+  // Reference lines
+  let refs = '';
+  (opts.referenceLines || []).forEach(r => {
+    const y = yScale(r.y);
+    refs += `<line x1="${padL}" x2="${W-padR}" y1="${y}" y2="${y}" stroke="${r.color}" stroke-width="1" stroke-dasharray="${r.dash||'3,2'}"/>`;
+  });
+
+  // Gradiente verde/amarelo (estilo ProfiTrace)
+  const gradId = 'g_' + Math.random().toString(36).slice(2,8);
+  const gradGreen = `
+    <defs>
+      <linearGradient id="${gradId}" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0%" stop-color="#f0e040"/>
+        <stop offset="55%" stop-color="#a8d845"/>
+        <stop offset="100%" stop-color="#5eb030"/>
+      </linearGradient>
+      <linearGradient id="${gradId}_warn" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0%" stop-color="#fdd28a"/>
+        <stop offset="100%" stop-color="#f5a623"/>
+      </linearGradient>
+      <linearGradient id="${gradId}_crit" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0%" stop-color="#f4a8a3"/>
+        <stop offset="100%" stop-color="#d63838"/>
+      </linearGradient>
+    </defs>
+  `;
+
+  // Bars
+  let bars = '';
+  sorted.forEach((e,i) => {
+    const x = padL + i*(barW+barGap);
+    const y = yScale(e.v);
+    const h = padT + chartH - y;
+    let fill = `url(#${gradId})`;
+    let q = opts.qualityFn ? opts.qualityFn(e.v) : (opts.inverted ? jitterQuality(e.v) : signalQuality(e.v));
+    if (q === 'crit') fill = `url(#${gradId}_crit)`;
+    else if (q === 'warn') fill = `url(#${gradId}_warn)`;
+
+    bars += `<g>
+      <rect x="${x}" y="${y}" width="${barW}" height="${h}" fill="${fill}" stroke="#444" stroke-width="0.4"/>
+      <text x="${x+barW/2}" y="${y-3}" text-anchor="middle" font-size="10.5" fill="#000" font-family="Arial" font-weight="bold">${e.v}</text>
+      <text x="${x+barW/2}" y="${H-padB+13}" text-anchor="middle" font-size="9.5" fill="#000" font-family="Arial" font-weight="bold">${e.addr}</text>
+    </g>`;
+  });
+
+  return `<svg viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMid meet">
+    ${gradGreen}
+    ${grid}
+    ${refs}
+    ${bars}
+  </svg>`;
+}
+
+/* ============================================================
+   RECOMENDAÇÕES
+   ============================================================ */
+function generateRecommendations(d, tags, sigEntries, jitEntries){
+  const recs = [];
+  const t = a => tags[a] ? `<strong>${esc(tags[a])}</strong> (end. ${a})` : `equipamento no endereço <strong>${a}</strong>`;
+  const idleEntries = Object.entries(d.idleVoltages || {}).map(([a,v]) => ({addr:parseInt(a,10), v, q:idleQuality(v)}));
+
+  // TRAVA: Só gera recomendações baseadas em dados REAIS encontrados no arquivo
+  sigEntries.filter(s => s.q === 'crit' && s.v < signalLimits().warn_min).forEach(s => {
+    recs.push(`<strong>TENSÃO BAIXA</strong> — ${t(s.addr)}: sinal medido <strong>${s.v} ${signalUnit()}</strong> (mínimo: ${signalLimits().warn_min} ${signalUnit()}).
+      <br><em>Procedimento:</em> (1) Verificar aperto dos conectores no dispositivo e no trunk; (2) Medir continuidade do cabo com multímetro; (3) Verificar blindagem e aterramento em ponto único; (4) Se persistir, substituir o trecho de cabo entre o último dispositivo OK e este.`);
+  });
+
+  sigEntries.filter(s => s.v > signalLimits().high_max).forEach(s => {
+    recs.push(`<strong>TENSÃO ELEVADA</strong> — ${t(s.addr)}: sinal medido <strong>${s.v} ${signalUnit()}</strong> (máximo: ${signalLimits().high_max} ${signalUnit()}).
+      <br><em>Procedimento:</em> (1) Verificar se há dois dispositivos no mesmo endereço; (2) Verificar terminadores de rede — excesso de terminação gera sobreposição; (3) Checar impedância do acoplador.`);
+  });
+
+  sigEntries.filter(s => s.q === 'warn').forEach(s => {
+    recs.push(`<strong>ATENÇÃO — SINAL MARGINAL</strong> — ${t(s.addr)}: <strong>${s.v} ${signalUnit()}</strong> (faixa de atenção: ${signalLimits().warn_min}–${signalLimits().good_min} ${signalUnit()}).
+      <br><em>Ação:</em> Agendar inspeção preventiva. Monitorar evolução na próxima medição. Se degradar, aplicar procedimento de tensão baixa.`);
+  });
+
+  // Idle voltage issues
+  idleEntries.filter(i => i.q === 'crit').forEach(i => {
+    recs.push(`<strong>TENSÃO IDLE ANORMAL</strong> — ${t(i.addr)}: tensão de repouso medida <strong>${i.v} V</strong> (faixa ideal: ${DP_IDLE_LIMITS.good_min}–${DP_IDLE_LIMITS.good_max} V).
+      <br><em>Procedimento:</em> (1) Verificar resistores terminadores (220Ω/390Ω); (2) Checar se há curto entre A e B; (3) Verificar alimentação do repetidor ou acoplador.`);
+  });
+
+  jitEntries.filter(j => j.q === 'crit').forEach(j => {
+    recs.push(`<strong>JITTER ELEVADO</strong> — ${t(j.addr)}: <strong>${j.v} µs</strong> (máximo: ${JITTER_LIMITS.warn_max} µs).
+      <br><em>Procedimento:</em> (1) Verificar terminadores em ambas as extremidades do segmento; (2) Medir comprimento total do trunk — não deve exceder limite da velocidade; (3) Afastar cabos de fontes de interferência (inversores, motores, contatoras).`);
+  });
+
+  for (const dev of d.devices){
+    if (dev.timesLost > 0){
+      recs.push(`<strong>PERDA DE COMUNICAÇÃO</strong> — ${t(dev.addr)} perdeu comunicação <strong>${dev.timesLost}</strong> vez(es).
+        <br><em>Procedimento URGENTE:</em> (1) Verificar alimentação do dispositivo; (2) Inspecionar conector e prensa-cabo; (3) Medir isolamento do cabo; (4) Verificar se o GSD correto está carregado no CLP; (5) Se houver inversor próximo, testar com filtro EMC.`);
+    }
+    if (dev.diagDx > 0){
+      recs.push(`<strong>DIAGNÓSTICOS EM DX</strong> — ${t(dev.addr)}: <strong>${dev.diagDx}</strong> diagnóstico(s) durante data exchange.
+        <br><em>Procedimento:</em> (1) Verificar parametrização e configuração de I/O no CLP; (2) Confirmar GSD utilizado (versão correta para o firmware do dispositivo); (3) Checar a data de calibração do instrumento.`);
+    }
+    if (dev.retryCount > 0){
+      recs.push(`<strong>RETENTATIVAS</strong> — ${t(dev.addr)}: <strong>${dev.retryCount}</strong> retry(ies) registrado(s).
+        <br><em>Procedimento:</em> (1) Inspecionar cabo e conectores entre este dispositivo e os vizinhos; (2) Verificar blindagem; (3) Testar com cabo reserva se disponível.`);
+    }
+  }
+
+  if (recs.length > 0){
+    recs.push(`<strong>VALIDAÇÃO:</strong> Após as ações corretivas, realizar nova medição com ProfiTrace para confirmar a efetividade das intervenções. Comparar os valores de tensão e jitter com este relatório.`);
+  }
+  return recs;
+}
+
+/* ============================================================
+   DOWNLOADS — PDF e Word
+   ============================================================ */
+$('#btnRefresh').addEventListener('click', () => renderReport());
+
+$('#btnCsv').addEventListener('click', () => {
+  if (!state.data) return;
+  const d = state.data;
+  const tags = state.tags;
+  const allAddrs = new Set();
+  d.devices.forEach(x => allAddrs.add(x.addr));
+  d.addresses.forEach(x => allAddrs.add(x.addr));
+  Object.keys(d.signals).forEach(a => allAddrs.add(parseInt(a,10)));
+  const sorted = Array.from(allAddrs).sort((a,b)=>a-b);
+
+  const header = 'Endereço;TAG;Fabricante;Modelo;Sinal_mV;Sinal_Status;Jitter_us;Jitter_Status;Diag_DX;Retries;Vezes_Perdido';
+  const rows = sorted.map(addr => {
+    const dev = d.devices.find(x => x.addr === addr) || {};
+    const ai = d.addresses.find(x => x.addr === addr) || {};
+    const sig = d.signals[addr];
+    const jit = d.jitters[addr];
+    return [
+      addr,
+      tags[addr] || '',
+      ai.manufacturer || dev.manufacturer || '',
+      ai.model || dev.model || dev.deviceType || '',
+      sig != null ? sig : '',
+      sig != null ? signalQuality(sig) : '',
+      jit != null ? jit : '',
+      jit != null ? jitterQuality(jit) : '',
+      dev.diagDx || 0,
+      dev.retryCount || 0,
+      dev.timesLost || 0
+    ].join(';');
+  });
+
+  const csv = [header, ...rows].join('\n');
+  const blob = new Blob(['\ufeff' + csv], {type:'text/csv;charset=utf-8'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = (state.meta.cliente || 'profibus').replace(/[^a-z0-9_-]/gi,'_') + '_dados.csv';
+  a.click();
+  URL.revokeObjectURL(url);
+  showToast('Arquivo CSV exportado ✓');
+});
+
+$('#btnPdf').addEventListener('click', () => {
+  $$('.tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === 'report'));
+  $$('.tab-content').forEach(el => el.classList.toggle('hidden', el.id !== 'tab-report'));
+  renderReport();
+  showToast('Preparando PDF — use "Salvar como PDF" na janela de impressão');
+  setTimeout(() => window.print(), 400);
+});
+
+$('#btnWord').addEventListener('click', () => {
+  $$('.tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === 'report'));
+  $$('.tab-content').forEach(el => el.classList.toggle('hidden', el.id !== 'tab-report'));
+  renderReport();
+  setTimeout(() => {
+    try {
+      const html = buildWordHtml(reportDoc.innerHTML);
+      const blob = new Blob(['\ufeff', html], {type:'application/msword'});
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      const fname = (state.meta.cliente || 'relatorio').replace(/[^a-z0-9_-]/gi,'_')
+                  + '_profibus_' + (state.meta.data || '').replace(/-/g,'') + '.doc';
+      a.href = url; a.download = fname; a.click();
+      URL.revokeObjectURL(url);
+      showToast('Arquivo Word gerado com sucesso ✓');
+    } catch(e) {
+      showToast('Erro ao gerar o arquivo Word', true);
+      console.error(e);
+    }
+  }, 250);
+});
+
+function buildWordHtml(innerHtml){
+  // Remove SVG (Word lida mal com SVG inline) — substitui por placeholder em texto
+  const cleaned = innerHtml.replace(/<svg[\s\S]*?<\/svg>/g,
+    '<div style="border:1px solid #999;padding:14pt;text-align:center;color:#666;font-size:9pt">[Gráfico — visível na versão PDF/web]</div>');
+
+  return `<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40">
+<head><meta charset="utf-8"><title>Relatório Profibus</title>
+<style>
+@page WordSection1 { size:21cm 29.7cm; margin:1.5cm; }
+div.WordSection1 { page:WordSection1; }
+body { font-family:Arial,sans-serif; font-size:10pt; color:#000; }
+.pt-page { page-break-after:always; padding:0; margin:0; width:100%; min-height:auto; box-shadow:none; display:block; }
+.pt-page-head { border-bottom:2pt solid #006f51; padding-bottom:6pt; margin-bottom:12pt; }
+.pt-logo { display:inline-block; width:40pt; height:40pt; background:#006f51; border-radius:50%; }
+.pt-page-title h1 { font-size:14pt; font-weight:bold; margin:0; }
+.pt-page-title small { font-size:8pt; color:#555; }
+.pt-section { margin-bottom:14pt; }
+.pt-section h2 { font-size:13pt; font-weight:bold; margin:0 0 8pt 0; }
+.pt-section h3 { font-size:11pt; font-weight:bold; margin:8pt 0 4pt; }
+.pt-section h4 { font-size:10pt; font-weight:bold; margin:6pt 0 4pt; }
+.pt-fields { width:100%; }
+.pt-fields .lbl { display:inline-block; width:170pt; vertical-align:top; }
+.pt-fields .val { display:inline-block; vertical-align:top; font-weight:500; }
+.pt-fields div { margin-bottom:3pt; }
+.pt-box { border:1pt solid #888; padding:8pt; margin-top:4pt; min-height:30pt; }
+.pt-box-caption { font-size:8pt; color:#666; text-align:center; font-style:italic; margin-top:3pt; }
+.pt-conclusion { border:1pt solid #888; padding:8pt; }
+.pt-check-row { padding:3pt 0; }
+.pt-check-row.active { font-weight:bold; }
+.pt-check { display:inline-block; width:14pt; height:14pt; border:1pt solid #333; text-align:center; margin-right:8pt; }
+.pt-check.checked { color:#d63838; border-color:#d63838; font-weight:bold; }
+table.pt-table, table.pt-livelist { border-collapse:collapse; width:100%; margin:6pt 0; }
+table.pt-table th { background:#006f51; color:#fff; padding:5pt 8pt; font-size:9pt; text-align:left; }
+table.pt-table td { padding:4pt 8pt; border-bottom:1pt solid #ddd; font-size:9pt; }
+table.pt-livelist th, table.pt-livelist td { border:1pt solid #fff; text-align:center; padding:3pt; font-size:7pt; }
+.pt-livelist .master { background:#a3d8a8; font-weight:bold; }
+.pt-livelist .slave-ok { background:#71c14a; font-weight:bold; color:#000; }
+.pt-livelist .slave-warn { background:#f5d24a; font-weight:bold; }
+.pt-livelist .slave-crit { background:#e95f5f; font-weight:bold; }
+.pt-livelist .reserved { background:#dadada; }
+.pt-legend { margin-top:8pt; }
+.pt-legend .lg-item { display:inline-block; margin-right:18pt; font-size:9pt; }
+.pt-legend .swatch, .pt-legend .swatch-num { display:inline-block; width:24pt; height:11pt; border:1pt solid #888; vertical-align:middle; margin-right:5pt; }
+.pt-bargraph { margin-bottom:14pt; }
+.pt-bargraph-title { font-size:10pt; font-weight:bold; }
+.pt-bargraph-sub { font-size:9pt; }
+.pt-bargraph-svg-wrap { padding:6pt; }
+.pt-device { margin-bottom:10pt; }
+.pt-device-head { background:#f0f0f0; border-left:3pt solid #006f51; padding:4pt 8pt; }
+.pt-device-head.warn { border-left-color:#f5a623; }
+.pt-device-head.crit { border-left-color:#d63838; }
+.h-addr { font-weight:bold; font-size:11pt; }
+.h-tag { font-weight:600; margin-left:14pt; color:#004a36; }
+.h-pill { font-size:8pt; font-weight:bold; padding:1pt 6pt; margin-left:8pt; }
+.h-pill.ok { background:#a3d8a8; color:#1a6e30; }
+.h-pill.warn { background:#fff0c8; color:#a06000; }
+.h-pill.crit { background:#fdd6d4; color:#a01818; }
+.pt-device-fields .lbl { display:inline-block; width:170pt; color:#222; }
+.pt-device-fields .val { display:inline-block; font-weight:500; }
+.pt-device-fields div { margin-bottom:2pt; font-size:9.5pt; }
+.pt-recommendations { background:#fffce6; border-left:3pt solid #ffd400; padding:10pt 14pt; }
+.pt-recommendations ol { margin-left:14pt; }
+.pt-no-issues { padding:10pt; background:#e9f5ec; color:#1a6e30; text-align:center; font-weight:500; }
+.pt-page-foot { margin-top:12pt; padding-top:6pt; border-top:1pt solid #999; font-size:7.5pt; color:#666; }
+.pt-subj { display:block; padding:5pt 0; border-bottom:1pt dotted #ddd; }
+.pt-subj .desc { display:inline-block; }
+.pt-subj .res { float:right; }
+.pt-subj .res .icon { display:inline-block; width:14pt; height:14pt; border:1pt solid #333; text-align:center; font-weight:bold; margin-left:6pt; }
+.pt-subj .res .icon.ok { color:#2ea84a; border-color:#2ea84a; }
+.pt-subj .res .icon.fail { color:#d63838; border-color:#d63838; }
+</style>
+</head><body><div class="WordSection1">${cleaned}</div></body></html>`;
+}
+
+/* ============================================================
+   PWA — Manifesto embutido (não precisa de manifest.json externo)
+   ============================================================ */
+(function() {
+  const iconSvg = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512'%3E%3Ccircle cx='256' cy='256' r='256' fill='%23006f51'/%3E%3Ccircle cx='256' cy='256' r='52' fill='%23fff'/%3E%3Cpath d='M256 50l26 106-26 16-26-16z' fill='%23fff'/%3E%3Cpath d='M256 462l26-106-26-16-26 16z' fill='%23fff'/%3E%3Cpath d='M50 256l106 26 16-26-16-26z' fill='%23fff'/%3E%3Cpath d='M462 256l-106 26-16-26 16-26z' fill='%23fff'/%3E%3Ccircle cx='410' cy='102' r='64' fill='%23ffd400' opacity='.85'/%3E%3C/svg%3E";
+
+  const manifest = {
+    name: "BIO·PROFIBUS — Análise de Rede",
+    short_name: "BIO·PROFIBUS",
+    description: "Análise e relatório técnico de redes Profibus DP/PA",
+    start_url: "./",
+    display: "standalone",
+    background_color: "#eef1ee",
+    theme_color: "#006f51",
+    orientation: "any",
+    icons: [
+      { src: iconSvg, sizes: "any", type: "image/svg+xml", purpose: "any maskable" }
+    ]
+  };
+
+  const blob = new Blob([JSON.stringify(manifest)], {type: 'application/manifest+json'});
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('link');
+  link.rel = 'manifest';
+  link.href = url;
+  document.head.appendChild(link);
+})();
+
+/* ============================================================
+   PWA — Service Worker Registration
+   O arquivo sw.js precisa existir no mesmo diretório.
+   Se não existir, o app funciona normalmente — só sem cache offline.
+   ============================================================ */
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('./sw.js')
+      .then(reg => {
+        console.log('[PWA] Service Worker registrado. Escopo:', reg.scope);
+        setInterval(() => reg.update(), 3600000);
+        reg.addEventListener('updatefound', () => {
+          const newWorker = reg.installing;
+          if (!newWorker) return;
+          newWorker.addEventListener('statechange', () => {
+            if (newWorker.state === 'activated' && navigator.serviceWorker.controller) {
+              showToast('Nova versão disponível — recarregue a página');
+            }
+          });
+        });
+      })
+      .catch(err => {
+        console.warn('[PWA] sw.js não encontrado — app funciona normal, sem cache offline.');
+      });
+  });
+}
+
+/* ============================================================
+   PWA — Install Prompt
+   ============================================================ */
+let deferredPrompt = null;
+
+window.addEventListener('beforeinstallprompt', e => {
+  e.preventDefault();
+  deferredPrompt = e;
+  let dismissed = false;
+  try { dismissed = localStorage.getItem('bp_install_dismissed') === '1'; } catch(ex){}
+  if (!dismissed) {
+    document.getElementById('installBanner').classList.add('visible');
+  }
+});
+
+document.getElementById('installBtn').addEventListener('click', async () => {
+  if (!deferredPrompt) return;
+  document.getElementById('installBanner').classList.remove('visible');
+  deferredPrompt.prompt();
+  const result = await deferredPrompt.userChoice;
+  if (result.outcome === 'accepted') {
+    showToast('App instalado com sucesso ✓');
+  }
+  deferredPrompt = null;
+});
+
+document.getElementById('installDismiss').addEventListener('click', () => {
+  document.getElementById('installBanner').classList.remove('visible');
+  try { localStorage.setItem('bp_install_dismissed', '1'); } catch(e){}
+});
+
+if (window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone) {
+  document.getElementById('installBanner').classList.remove('visible');
+}
+
+/* ============================================================
+   PWA — Online/Offline Detection
+   ============================================================ */
+const offlineBar = document.getElementById('offlineBar');
+
+function updateOnlineStatus() {
+  if (navigator.onLine) {
+    offlineBar.classList.remove('visible');
+  } else {
+    offlineBar.classList.add('visible');
+    setStatus('', 'Offline');
+  }
+}
+
+window.addEventListener('online', () => {
+  updateOnlineStatus();
+  showToast('Conexão restaurada');
+});
+
+window.addEventListener('offline', () => {
+  updateOnlineStatus();
+  showToast('Sem conexão — modo offline ativo');
+});
+
+updateOnlineStatus();
+
+</script>
+</body>
+</html>
