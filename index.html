@@ -888,7 +888,7 @@ body{
 </main>
 
 <footer class="app-footer">
-  BIO·PROFIBUS v2.0 · Suporte DP + PA · Travas anti-erro ativas · Os dados são processados localmente no seu navegador
+  BIO·PROFIBUS v2.1 · Suporte DP + PA · Classificação automática (Beta) · Travas anti-erro ativas · Os dados são processados localmente no seu navegador
 </footer>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
@@ -1880,7 +1880,7 @@ function renderReport(){
 
   const devicesPerPage = 4;
   const devicePagesNum = Math.ceil(sortedAddrs.length / devicesPerPage) || 0;
-  const totalPages = 6 + devicePagesNum + 1 + 1; // +1 glossário
+  const totalPages = 1 + 6 + devicePagesNum + 1 + 1; // exec + 6 seções + devices + recomendações + glossário
 
   function pageWrap(content){
     pageNum++;
@@ -1934,6 +1934,91 @@ function renderReport(){
       </section>
     `;
   }
+
+  // ==================================================
+  // CLASSIFICAÇÃO DE DIAGNÓSTICO por dispositivo
+  // ==================================================
+  const classifications = {};
+  let countFisica = 0, countAuto = 0, countAmbos = 0, countOk = 0;
+  for (const a of sortedAddrs) {
+    const dev = d.devices.find(x => x.addr === a) || {addr: a, diagDx:0, retryCount:0, timesLost:0};
+    const sig = d.signals[a];
+    const idle = (d.idleVoltages || {})[a];
+    const jit = d.jitters[a];
+    const cls = classifyDevice(dev, sig, signalQuality(sig), idle, idleQuality(idle), jit, jitterQuality(jit), d);
+    classifications[a] = cls;
+    if (cls.category === DIAG_CATEGORY.FISICA) countFisica++;
+    else if (cls.category === DIAG_CATEGORY.AUTOMACAO) countAuto++;
+    else if (cls.category === DIAG_CATEGORY.AMBOS) countAmbos++;
+    else countOk++;
+  }
+  const totalProblems = countFisica + countAuto + countAmbos;
+
+  // ==================================================
+  // PÁGINA 0: RESUMO EXECUTIVO (para o corporativo)
+  // ==================================================
+  let verdictText, verdictColor;
+  if (score >= 85) { verdictText = 'REDE SAUDÁVEL'; verdictColor = '#16a34a'; }
+  else if (score >= 60) { verdictText = 'ATENÇÃO NECESSÁRIA'; verdictColor = '#d97706'; }
+  else { verdictText = 'INTERVENÇÃO URGENTE'; verdictColor = '#dc2626'; }
+
+  const pageExec = pageWrap(`
+    <div class="pt-section" style="text-align:center;padding-top:20px">
+      <h2 style="font-size:16pt;margin-bottom:20px">Resumo Executivo</h2>
+      <div style="display:inline-block;width:120px;height:120px;border-radius:50%;border:8px solid ${verdictColor};display:flex;align-items:center;justify-content:center;margin:0 auto 16px">
+        <span style="font-size:36pt;font-weight:bold;color:${verdictColor};display:block;text-align:center;line-height:120px">${score}</span>
+      </div>
+      <div style="font-size:18pt;font-weight:bold;color:${verdictColor};margin-bottom:8px">${verdictText}</div>
+      <div style="font-size:10pt;color:#555;margin-bottom:24px">Saúde da rede · Escala de 0 a 100</div>
+    </div>
+
+    <div class="pt-section">
+      <div class="pt-fields" style="font-size:11pt">
+        <div class="lbl">Rede:</div><div class="val">${esc(d.network.name || '—')} · ${d.networkType} · ${esc(d.network.speed || '—')}</div>
+        <div class="lbl">Local:</div><div class="val">${esc(m.cliente || '—')} · ${esc(m.planta || '—')}</div>
+        <div class="lbl">Estações:</div><div class="val">${d.network.masters} mestre(s) · ${d.network.slaves} escravo(s)</div>
+        <div class="lbl">Data do relatório:</div><div class="val">${fmtDate(m.data)}</div>
+      </div>
+    </div>
+
+    <div class="pt-section">
+      <h2 style="font-size:13pt">Resultado da análise</h2>
+      <table class="pt-table" style="font-size:10pt">
+        <tbody>
+          <tr><td style="width:40px;text-align:center;font-size:14pt">✓</td><td><b>${countOk}</b> dispositivo(s) operando normalmente</td></tr>
+          ${countFisica > 0 ? `<tr><td style="text-align:center;font-size:14pt">${DIAG_CATEGORY.FISICA.icon}</td><td><b>${countFisica}</b> com indicação de problema de <b>rede física</b> (cabo, conector, terminador)</td></tr>` : ''}
+          ${countAuto > 0 ? `<tr><td style="text-align:center;font-size:14pt">${DIAG_CATEGORY.AUTOMACAO.icon}</td><td><b>${countAuto}</b> com indicação de problema de <b>automação</b> (CLP, GSD, parametrização)</td></tr>` : ''}
+          ${countAmbos > 0 ? `<tr><td style="text-align:center;font-size:14pt">${DIAG_CATEGORY.AMBOS.icon}</td><td><b>${countAmbos}</b> requerendo <b>investigação</b> (pode ser rede ou automação)</td></tr>` : ''}
+        </tbody>
+      </table>
+      ${totalProblems === 0 ? '<div class="pt-no-issues" style="margin-top:12px">✓ Nenhuma ação corretiva necessária. Monitoramento periódico recomendado.</div>' : ''}
+    </div>
+
+    ${totalProblems > 0 ? `
+    <div class="pt-section">
+      <h2 style="font-size:13pt">Dispositivos que requerem atenção</h2>
+      <table class="pt-table" style="font-size:9.5pt">
+        <thead><tr><th>End.</th><th>TAG</th><th>Classificação</th><th>Indicação principal</th></tr></thead>
+        <tbody>
+        ${sortedAddrs.filter(a => classifications[a].category !== DIAG_CATEGORY.OK).map(a => {
+          const cls = classifications[a];
+          return `<tr>
+            <td class="num"><b>${a}</b></td>
+            <td>${esc(tags[a] || '—')}</td>
+            <td>${cls.category.icon} ${cls.category.label}</td>
+            <td>${cls.issues[0] ? cls.issues[0].reason : '—'}</td>
+          </tr>`;
+        }).join('')}
+        </tbody>
+      </table>
+    </div>
+    ` : ''}
+
+    <div style="margin-top:20px;padding:10px 14px;background:#fff8e1;border:1px solid #ffe082;border-left:4px solid #ffd400;font-size:8.5pt;color:#555">
+      <b>Nota:</b> A classificação automática (Rede Física / Automação) é uma <b>indicação baseada nos dados medidos</b>, não um diagnóstico definitivo.
+      A decisão final de onde e como intervir é do técnico habilitado em campo. Versão do algoritmo: Beta 1.0.
+    </div>
+  `);
 
   // ==================================================
   // PÁGINA 1: Seções 1 a 5
@@ -2194,7 +2279,7 @@ function renderReport(){
       `;
     }
     for (const a of slice){
-      body += renderDeviceBlock(a, d, tags);
+      body += renderDeviceBlock(a, d, tags, classifications);
     }
     devicePages.push(pageWrap(body));
   }
@@ -2285,11 +2370,11 @@ function renderReport(){
     </div>
   `);
 
-  let html = page1 + page2 + page3 + page4 + page5 + page6 + devicePages.join('') + finalPage + glossaryPage;
+  let html = pageExec + page1 + page2 + page3 + page4 + page5 + page6 + devicePages.join('') + finalPage + glossaryPage;
   reportDoc.innerHTML = html;
 }
 
-function renderDeviceBlock(addr, d, tags){
+function renderDeviceBlock(addr, d, tags, classifications){
   const dev = d.devices.find(x => x.addr === addr) || {addr};
   const ai  = d.addresses.find(x => x.addr === addr) || {};
   const sig = d.signals[addr];
@@ -2300,6 +2385,7 @@ function renderDeviceBlock(addr, d, tags){
   const jQ = jitterQuality(jit);
   const iQ = idleQuality(idle);
   const isMaster = (dev.deviceType||'').toLowerCase().includes('master');
+  const cls = classifications ? classifications[addr] : null;
 
   let critical = false, warning = false;
   if (sQ === 'crit' || jQ === 'crit' || iQ === 'crit' || dev.timesLost > 0) critical = true;
@@ -2313,12 +2399,26 @@ function renderDeviceBlock(addr, d, tags){
   const model = ai.model || dev.model || dev.deviceType || '—';
   const identNo = ai.identNo || dev.identNo || '—';
 
-  // TRAVA: Labels de status em português, baseados SOMENTE nos dados reais
   function statusLabel(q) {
     if (q === 'ok') return 'OK';
     if (q === 'warn') return 'Atenção';
     if (q === 'crit') return 'Crítico';
     return 'Sem dados';
+  }
+
+  // Classificação de diagnóstico
+  let classificationHtml = '';
+  if (cls && cls.category !== DIAG_CATEGORY.OK) {
+    classificationHtml = `
+      <div style="margin-top:8px;padding:6px 10px;background:#f8f8f0;border-left:3px solid ${cls.category.color};font-size:9pt">
+        <div style="font-weight:bold;color:${cls.category.color};margin-bottom:3px">
+          ${cls.category.icon} Indicação: ${cls.category.label}
+        </div>
+        ${cls.issues.map(i => `
+          <div style="margin-left:8px;color:#333">• ${i.reason} <span style="color:#999;font-size:8pt">[${i.source}]</span></div>
+        `).join('')}
+      </div>
+    `;
   }
 
   return `
@@ -2345,6 +2445,7 @@ function renderDeviceBlock(addr, d, tags){
         <div class="lbl">Vezes perdido:</div><div class="val">${dev.timesLost||0}</div>
         ${dev.processCount!=null?`<div class="lbl">Process count:</div><div class="val">${dev.processCount}</div>`:''}
       </div>
+      ${classificationHtml}
     </div>
   `;
 }
@@ -2421,22 +2522,23 @@ function renderBarChart(entries, opts){
   const yStep = opts.yStep;
   const yTicks = Math.round(yMax / yStep);
 
-  const W = 700, H = 230;
-  const padL = 56, padR = 14, padT = 14, padB = 38;
+  const n = sorted.length;
+  const W = Math.max(700, n * 16 + 80), H = 230;
+  const padL = 62, padR = 14, padT = 14, padB = 38;
   const chartW = W - padL - padR;
   const chartH = H - padT - padB;
-  const n = sorted.length;
-  const barGap = 6;
-  const barW = Math.max(8, (chartW - (n-1)*barGap) / n);
+  const barGap = Math.max(2, Math.min(6, (chartW / n) * 0.2));
+  const barW = Math.max(6, (chartW - (n-1)*barGap) / n);
   const yScale = v => padT + chartH - (v / yMax) * chartH;
 
-  // Gridlines + labels Y
+  // Gridlines + labels Y — FIX: formatar decimais corretamente
   let grid = '';
   for (let i=0; i<=yTicks; i++){
-    const v = yStep * i;
+    const v = Math.round(yStep * i * 1000) / 1000; // Evita floating point artifacts
     const y = yScale(v);
+    const label = Number.isInteger(v) ? v.toString() : v.toFixed(1);
     grid += `<line x1="${padL}" x2="${W-padR}" y1="${y}" y2="${y}" stroke="${i===0?'#000':'#bbb'}" stroke-width="${i===0?'1':'0.5'}" stroke-dasharray="${i===0?'0':'1,2'}"/>`;
-    grid += `<text x="${padL-6}" y="${y+3.5}" text-anchor="end" font-size="9" fill="#000" font-family="Arial">${v}${opts.unit}</text>`;
+    grid += `<text x="${padL-6}" y="${y+3.5}" text-anchor="end" font-size="9" fill="#000" font-family="Arial">${label}${opts.unit}</text>`;
   }
 
   // Reference lines
@@ -2477,10 +2579,13 @@ function renderBarChart(entries, opts){
     if (q === 'crit') fill = `url(#${gradId}_crit)`;
     else if (q === 'warn') fill = `url(#${gradId}_warn)`;
 
+    const fontSize = barW < 12 ? 7 : barW < 16 ? 8.5 : 10.5;
+    const addrFontSize = barW < 12 ? 7 : barW < 16 ? 8 : 9.5;
+    const valLabel = Number.isInteger(e.v) ? e.v : (typeof e.v === 'number' ? e.v.toFixed(e.v < 10 ? 2 : 0) : e.v);
     bars += `<g>
       <rect x="${x}" y="${y}" width="${barW}" height="${h}" fill="${fill}" stroke="#444" stroke-width="0.4"/>
-      <text x="${x+barW/2}" y="${y-3}" text-anchor="middle" font-size="10.5" fill="#000" font-family="Arial" font-weight="bold">${e.v}</text>
-      <text x="${x+barW/2}" y="${H-padB+13}" text-anchor="middle" font-size="9.5" fill="#000" font-family="Arial" font-weight="bold">${e.addr}</text>
+      <text x="${x+barW/2}" y="${y-3}" text-anchor="middle" font-size="${fontSize}" fill="#000" font-family="Arial" font-weight="bold">${valLabel}</text>
+      <text x="${x+barW/2}" y="${H-padB+13}" text-anchor="middle" font-size="${addrFontSize}" fill="#000" font-family="Arial" font-weight="bold">${e.addr}</text>
     </g>`;
   });
 
@@ -2495,6 +2600,97 @@ function renderBarChart(entries, opts){
 /* ============================================================
    RECOMENDAÇÕES
    ============================================================ */
+/* ============================================================
+   CLASSIFICAÇÃO DE DIAGNÓSTICO — Rede Física / Automação / Ambos
+   REGRAS DE SEGURANÇA:
+   1. Nunca afirmar — sempre "indicação" ou "possível"
+   2. Só classificar com dados reais
+   3. Na dúvida → "Investigar ambos"
+   4. Rastreabilidade: mostrar dado fonte
+   5. Aviso beta explícito
+   ============================================================ */
+const DIAG_CATEGORY = {
+  FISICA: { label: 'Rede Física', icon: '🔌', color: '#2563eb', desc: 'Cabo, conector, terminador, blindagem, aterramento' },
+  AUTOMACAO: { label: 'Automação', icon: '⚙️', color: '#7c3aed', desc: 'CLP, GSD, parametrização, configuração de I/O' },
+  AMBOS: { label: 'Investigar ambos', icon: '🔍', color: '#d97706', desc: 'Pode ser rede física ou automação — verificar os dois' },
+  OK: { label: 'Normal', icon: '✓', color: '#16a34a', desc: 'Sem desvios detectados' }
+};
+
+function classifyDevice(dev, sig, sigQ, idle, idleQ, jit, jitQ, d) {
+  const issues = [];
+
+  // Regra 2: Só classificar com dados reais
+  if (sig != null && (sigQ === 'crit' || sigQ === 'warn')) {
+    issues.push({
+      cat: 'FISICA',
+      reason: `Tensão AB Diff ${sig} ${signalUnit()} — ${sigQ === 'crit' ? 'fora da faixa' : 'marginal'}`,
+      source: 'Tensão AB Diff extraída do arquivo .ptn'
+    });
+  }
+  if (idle != null && (idleQ === 'crit' || idleQ === 'warn')) {
+    issues.push({
+      cat: 'FISICA',
+      reason: `Tensão Idle ${idle} V — ${idleQ === 'crit' ? 'fora da faixa' : 'marginal'}`,
+      source: 'Tensão Idle extraída do arquivo .ptn'
+    });
+  }
+  if (jit != null && (jitQ === 'crit' || jitQ === 'warn')) {
+    issues.push({
+      cat: 'FISICA',
+      reason: `Jitter ${jit} µs — ${jitQ === 'crit' ? 'acima do limite' : 'marginal'}`,
+      source: 'Jitter extraído do arquivo'
+    });
+  }
+  if (dev.retryCount > 0) {
+    issues.push({
+      cat: 'FISICA',
+      reason: `${dev.retryCount} retentativa(s) registrada(s)`,
+      source: 'Retry count do registro do dispositivo'
+    });
+  }
+  if (dev.diagDx > 0) {
+    issues.push({
+      cat: 'AUTOMACAO',
+      reason: `${dev.diagDx} diagnóstico(s) em data exchange`,
+      source: 'Diag count while DX do registro do dispositivo'
+    });
+  }
+  if (dev.timesLost > 0) {
+    // Regra 3: Perda de comunicação pode ser ambos
+    issues.push({
+      cat: 'AMBOS',
+      reason: `Perdeu comunicação ${dev.timesLost} vez(es)`,
+      source: 'Times lost do registro do dispositivo'
+    });
+  }
+  if (d.paramSlaves && d.paramSlaves.includes(dev.addr)) {
+    issues.push({
+      cat: 'AUTOMACAO',
+      reason: 'Parâmetros foram reenviados durante a medição',
+      source: 'Seção "Parameters sent" do ProfiTrace'
+    });
+  }
+
+  if (issues.length === 0) return { category: DIAG_CATEGORY.OK, issues: [] };
+
+  // Determinar categoria predominante
+  const cats = issues.map(i => i.cat);
+  const hasFisica = cats.includes('FISICA');
+  const hasAuto = cats.includes('AUTOMACAO');
+  const hasAmbos = cats.includes('AMBOS');
+
+  let finalCat;
+  if (hasAmbos || (hasFisica && hasAuto)) {
+    finalCat = DIAG_CATEGORY.AMBOS; // Regra 3: na dúvida, investigar ambos
+  } else if (hasFisica) {
+    finalCat = DIAG_CATEGORY.FISICA;
+  } else {
+    finalCat = DIAG_CATEGORY.AUTOMACAO;
+  }
+
+  return { category: finalCat, issues };
+}
+
 function generateRecommendations(d, tags, sigEntries, jitEntries){
   const recs = [];
   const t = a => tags[a] ? `<strong>${esc(tags[a])}</strong> (end. ${a})` : `equipamento no endereço <strong>${a}</strong>`;
