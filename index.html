@@ -1097,7 +1097,7 @@ function renderDashboard(){
   const totalRetries = d.devices.reduce((s,x) => s + (x.retryCount||0), 0);
   const totalDiag = d.devices.reduce((s,x) => s + (x.diagDx||0), 0);
 
-  score -= totalLost * 10;
+  score -= totalLost * 20;
   score -= totalRetries * 3;
   score -= totalDiag * 5;
   if (d.lostSlaves.length > 0) score -= 10;
@@ -2685,6 +2685,21 @@ function renderReport(){
           <tr><td><b>ProfiCore</b></td><td>Módulo de hardware da Procentec usado para capturar os dados de comunicação da rede Profibus.</td></tr>
           <tr><td><b>Cycle Time</b></td><td>Tempo para o mestre completar uma varredura de todos os escravos. Tempos longos podem indicar rede congestionada.</td></tr>
           <tr><td><b>Sync</b></td><td>Comando de sincronização enviado pelo mestre. Em alguns CLPs (como ABB) é normal e contínuo.</td></tr>
+          <tr><td><b>Terminador</b></td><td>Resistor de terminação (220Ω série + 390Ω pull-up/pull-down com 5V) nas extremidades do segmento. Obrigatório em ambas as pontas. Gera tensão idle de ~0.9V.</td></tr>
+          <tr><td><b>Segmento</b></td><td>Trecho físico do barramento. Máximo 32 dispositivos e comprimento conforme a velocidade (ver tabela abaixo). Segmentos são interligados por repetidores.</td></tr>
+          <tr><td><b>Repetidor</b></td><td>Regenera o sinal entre segmentos. Permite ultrapassar o limite de 32 dispositivos e de comprimento. Máximo 3 repetidores em série recomendado.</td></tr>
+        </tbody>
+      </table>
+      <h3 style="margin-top:14px">Comprimento máximo por segmento (cabo tipo A, IEC 61158-2)</h3>
+      <table class="pt-table" style="font-size:9pt">
+        <thead><tr><th>Baud Rate</th><th>Comprimento máximo</th><th>Dispositivos por segmento</th></tr></thead>
+        <tbody>
+          <tr><td>9.6 / 19.2 / 93.75 kbps</td><td>1.200 m</td><td>32</td></tr>
+          <tr><td>187.5 kbps</td><td>1.000 m</td><td>32</td></tr>
+          <tr><td>500 kbps</td><td>400 m</td><td>32</td></tr>
+          <tr><td>1.5 Mbps</td><td>200 m</td><td>32</td></tr>
+          <tr><td>3 – 12 Mbps</td><td>100 m</td><td>32</td></tr>
+          <tr><td>PA (31.25 kbps)</td><td>1.900 m</td><td>32</td></tr>
         </tbody>
       </table>
     </div>
@@ -3046,6 +3061,65 @@ function generateRecommendations(d, tags, sigEntries, jitEntries){
   if (recs.length > 0){
     recs.push(`<strong>VALIDAÇÃO:</strong> Após as ações corretivas, realizar nova medição com ProfiTrace para confirmar a efetividade das intervenções. Comparar os valores de tensão e jitter com este relatório.`);
   }
+
+  // === ANÁLISE AVANÇADA (visão de especialista) ===
+
+  // ANÁLISE DE PROCESS COUNT — dispositivo com contagem muito abaixo da média estava offline
+  const processCounts = d.devices.filter(x => x.processCount > 0).map(x => x.processCount);
+  if (processCounts.length > 3) {
+    const avgPC = processCounts.reduce((s,v) => s+v, 0) / processCounts.length;
+    const lowPC = d.devices.filter(x => x.processCount > 0 && x.processCount < avgPC * 0.5);
+    lowPC.forEach(dev => {
+      const pct = Math.round((dev.processCount / avgPC) * 100);
+      recs.push(`<strong>PROCESS COUNT BAIXO</strong> — ${t(dev.addr)}: contagem de ${dev.processCount} (média da rede: ${Math.round(avgPC)}; este dispositivo participou de apenas ${pct}% dos ciclos).
+        <br><em>Indicação:</em> O dispositivo pode ter ficado offline durante parte da medição. Verificar alimentação, conexão e estabilidade.
+        <br><em>Fonte:</em> Process count extraído do arquivo .ptn`);
+    });
+  }
+
+  // ANÁLISE DE TENDÊNCIA DE TENSÃO — queda progressiva indica atenuação no cabo
+  if (sigEntries.length > 5) {
+    const sorted = [...sigEntries].sort((a,b) => a.addr - b.addr);
+    const firstHalf = sorted.slice(0, Math.floor(sorted.length / 2));
+    const secondHalf = sorted.slice(Math.floor(sorted.length / 2));
+    const avgFirst = firstHalf.reduce((s,e) => s + e.v, 0) / firstHalf.length;
+    const avgSecond = secondHalf.reduce((s,e) => s + e.v, 0) / secondHalf.length;
+    const drop = avgFirst - avgSecond;
+    if (drop > 0.5) {
+      recs.push(`<strong>TENDÊNCIA DE QUEDA DE TENSÃO</strong> — Os endereços mais altos apresentam tensão média ${avgSecond.toFixed(2)}V vs ${avgFirst.toFixed(2)}V dos endereços mais baixos (queda de ${drop.toFixed(2)}V).
+        <br><em>Indicação:</em> Possível atenuação ao longo do trunk. Verificar comprimento total do segmento, qualidade das emendas e estado dos conectores nos dispositivos mais distantes do mestre.`);
+    }
+  }
+
+  // CONTEXTO DE BAUD RATE — comprimento máximo do segmento
+  const baudRateMaxLen = {
+    '9600': 1200, '19200': 1200, '45450': 1900, '93750': 1200,
+    '187500': 1000, '500000': 400, '1500000': 200,
+    '3000000': 100, '6000000': 100, '12000000': 100
+  };
+  const speedStr = d.network.speed || '';
+  let baudVal = 0;
+  if (speedStr.includes('kbit')) baudVal = parseFloat(speedStr) * 1000;
+  else if (speedStr.includes('Mbit')) baudVal = parseFloat(speedStr) * 1000000;
+  const maxLen = baudRateMaxLen[String(Math.round(baudVal))] || null;
+  if (maxLen) {
+    recs.push(`<strong>LIMITE DE SEGMENTO</strong> — A ${d.network.speed}, o comprimento máximo por segmento é <strong>${maxLen}m</strong> (cabo tipo A, IEC 61158-2). Máximo de <strong>32 dispositivos por segmento</strong> sem repetidor.
+      ${d.network.slaves > 32 ? `<br><em>Atenção:</em> Esta rede tem ${d.network.slaves} escravos — são necessários pelo menos ${Math.ceil(d.network.slaves / 31)} segmentos com repetidores.` : ''}`);
+  }
+
+  // ANÁLISE DE TERMINAÇÃO via idle voltage
+  const idleValues = Object.values(d.idleVoltages || {});
+  if (idleValues.length > 0) {
+    const avgIdle = idleValues.reduce((s,v) => s+v, 0) / idleValues.length;
+    if (avgIdle < 0.3) {
+      recs.push(`<strong>TERMINAÇÃO AUSENTE OU DEFICIENTE</strong> — Tensão idle média de ${avgIdle.toFixed(3)}V (esperado: ~0.9V com terminadores padrão 220Ω/390Ω/5V).
+        <br><em>Procedimento:</em> (1) Verificar se os terminadores estão ativos nas duas extremidades do segmento; (2) Confirmar que os terminadores têm alimentação 5V; (3) Verificar resistores 220Ω e 390Ω nos conectores DB9.`);
+    } else if (avgIdle > 1.5) {
+      recs.push(`<strong>EXCESSO DE TERMINAÇÃO</strong> — Tensão idle média de ${avgIdle.toFixed(3)}V (esperado: ~0.9V). Pode haver mais de 2 terminadores ativos no segmento.
+        <br><em>Procedimento:</em> Verificar se há terminadores ativos em pontos intermediários do trunk. Desativar os que não estão nas extremidades.`);
+    }
+  }
+
   return recs;
 }
 
