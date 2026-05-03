@@ -770,7 +770,7 @@ body{
       </svg>
     </div>
     <h2>Envie o arquivo do ProfiTrace</h2>
-    <p>Arraste o PDF ou .ptn aqui, ou clique para selecionar</p>
+    <p>Arraste o PDF, .ptn ou .ptd aqui, ou clique para selecionar</p>
     <span class="dropzone-hint">PDF · PTN · gerado pelo ProfiTrace</span>
   </section>
 
@@ -1236,7 +1236,7 @@ async function handleFile(f){
     const isPtd = fname.endsWith('.ptd');
 
     if (!isPdf && !isPtn && !isPtd) {
-      throw new Error('Formato não suportado. Use PDF (.pdf) ou Network Manager (.ptn) do ProfiTrace.');
+      throw new Error('Formato não suportado. Use PDF (.pdf), Network Manager (.ptn) ou captura (.ptd) do ProfiTrace.');
     }
 
     // Update file tag
@@ -1258,7 +1258,12 @@ async function handleFile(f){
       loadingTitle.textContent = 'Processando dados...';
       loadingDesc.textContent = 'Construindo relatório';
     } else if (isPtd) {
-      throw new Error('Arquivo .ptd contém captura bruta sem dados de análise. Use o arquivo .ptn (Network Manager) da mesma medição, ou exporte um PDF pelo ProfiTrace.');
+      loadingTitle.textContent = 'Lendo arquivo .ptd...';
+      const buf = await file.arrayBuffer();
+      data = parsePtdFile(buf);
+      if (!data || data._confidence.stationsFound === 0) {
+        throw new Error('Não foi possível extrair dados do arquivo .ptd. Para relatório completo, use o arquivo .ptn (Network Manager) da mesma medição.');
+      }
     } else {
       loadingTitle.textContent = 'Lendo o PDF...';
       loadingDesc.textContent = 'Extraindo conteúdo das páginas';
@@ -1569,6 +1574,48 @@ function parsePtnFile(arrayBuffer) {
 
   if (!data.network.name) data.network.name = 'Rede Profibus';
 
+  // 5. Extract scope waveform data per station
+  const scopePositions = findPattern('@ScopeImage\0');
+  const rawSamplePositions = findPattern('@RawSampleData\0');
+  
+  data.scopeData = {}; // addr -> { samples: Uint8Array, numSamples: number }
+  
+  for (let si = 0; si < stationLabels.length; si++) {
+    const st = stationLabels[si];
+    const nextPos = si + 1 < stationLabels.length ? stationLabels[si + 1].pos : bytes.length;
+    if (st.type !== 'Slave') continue;
+    
+    // Find the FIRST @RawSampleData in this station's block
+    for (const rsdPos of rawSamplePositions) {
+      if (rsdPos > st.pos && rsdPos < nextPos) {
+        // Header after @RawSampleData\0: 13 bytes of struct info, then raw bytes
+        // Length is encoded in header bytes 1-4: little-endian uint32
+        const hdrStart = rsdPos + '@RawSampleData\0'.length;
+        if (hdrStart + 13 >= bytes.length) break;
+        const sampleLen = bytes[hdrStart + 1] | (bytes[hdrStart + 2] << 8) | 
+                          (bytes[hdrStart + 3] << 16) | (bytes[hdrStart + 4] << 24);
+        
+        // TRAVA: Validar tamanho — deve ser 2048 ou similar potência de 2
+        if (sampleLen >= 256 && sampleLen <= 8192) {
+          const sampleStart = hdrStart + 13;
+          if (sampleStart + sampleLen <= bytes.length) {
+            const samples = new Uint8Array(bytes.buffer, bytes.byteOffset + sampleStart, sampleLen);
+            data.scopeData[st.addr] = {
+              samples: Array.from(samples), // Convert to regular array for easier handling
+              numSamples: sampleLen
+            };
+          }
+        }
+        break; // Only take the first capture per station
+      }
+    }
+  }
+  
+  const scopeCount = Object.keys(data.scopeData).length;
+  if (scopeCount > 0) {
+    data._confidence.warnings.push(`Forma de onda capturada: ${scopeCount} estação(ões) com dados de scope`);
+  }
+
   // TRAVA: Verificar consistência dos dados encontrados
   if (data._confidence.stationsFound === 0) {
     data._confidence.warnings.push('Nenhuma estação escrava encontrada no arquivo');
@@ -1576,6 +1623,167 @@ function parsePtnFile(arrayBuffer) {
   if (data._confidence.signalsFound === 0 && data._confidence.stationsFound > 0) {
     data._confidence.warnings.push('Estações encontradas mas sem dados de tensão AB Diff — o arquivo pode estar incompleto');
   }
+
+  return data;
+}
+
+/* ============================================================
+   PARSER .PTD — Captura bruta do ProfiTrace
+   Extrai: endereços ativos, contagem de ciclos, frames por estação
+   TRAVA: Parser conservador — só extrai o que tem certeza
+   ============================================================ */
+function parsePtdFile(arrayBuffer) {
+  const bytes = new Uint8Array(arrayBuffer);
+  const data = {
+    network: {
+      name:'', location:'', startTime:'', duration:'',
+      speed:'', masters:0, slaves:0,
+      cycleMin:'', cycleAvg:'', cycleMax:'',
+      proficore:'', version:'',
+      projectDetails:''
+    },
+    networkType: 'DP',
+    deviations: false,
+    diagSlaves: [],
+    lostSlaves: [],
+    illegalDevices: [],
+    retrySlaves: [],
+    syncSlaves: [],
+    reservedDevice: [],
+    paramSlaves: [],
+    addresses: [],
+    devices: [],
+    signals: {},
+    jitters: {},
+    idleVoltages: {},
+    rawText: '',
+    _confidence: {
+      baudFound: false,
+      serialFound: false,
+      stationsFound: 0,
+      signalsFound: 0,
+      idleFound: 0,
+      warnings: ['Arquivo .ptd: captura bruta de telegramas — dados de tensão e idle não disponíveis neste formato']
+    },
+    _ptdStats: null
+  };
+
+  if (bytes.length < 100) return data;
+
+  // Header: bytes 0-3 = version, bytes 4-7 = file size
+  const fileSize = bytes[4] | (bytes[5] << 8) | (bytes[6] << 16) | (bytes[7] << 24);
+
+  // Extract network name (at offset ~0xA4 in some files)
+  let netName = '';
+  for (let i = 0xA0; i < Math.min(0x120, bytes.length); i++) {
+    if (bytes[i] >= 0x20 && bytes[i] < 0x7F) {
+      let s = '';
+      for (let j = i; j < Math.min(i + 40, bytes.length) && bytes[j] >= 0x20 && bytes[j] < 0x7F; j++) {
+        s += String.fromCharCode(bytes[j]);
+      }
+      if (s.length >= 3 && !/^[0-9]+$/.test(s)) {
+        netName = s.trim();
+        break;
+      }
+    }
+  }
+  if (netName) data.network.name = netName;
+
+  // Find frame records: marker 'wwff' (0x77, 0x77, 0x66, 0x66)
+  const MARKER = [0x77, 0x77, 0x66, 0x66];
+  const CYCLE_MARKER = [0x3E, 0x3C, 0x6D]; // "><m" = cycle boundary
+
+  const addrFrameCount = {};  // address -> frame count
+  let totalFrames = 0;
+  let cycleCount = 0;
+  let i = 0x300; // Skip header area
+
+  while (i < bytes.length - 10) {
+    // Check for cycle marker "><m"
+    if (bytes[i] === 0x3E && bytes[i+1] === 0x3C && bytes[i+2] === 0x6D) {
+      cycleCount++;
+      i += 3;
+      continue;
+    }
+
+    // Check for frame record marker "wwff"
+    if (bytes[i] === 0x77 && bytes[i+1] === 0x77 && bytes[i+2] === 0x66 && bytes[i+3] === 0x66) {
+      totalFrames++;
+
+      // Record structure: wwff [2-byte length] [1-byte type] [1-byte src_addr]
+      const recLen = bytes[i+4] | (bytes[i+5] << 8);
+      const srcAddr = bytes[i+7];
+
+      // TRAVA: Validar endereço antes de contar
+      if (isValidRange(srcAddr, 'address') && recLen > 0 && recLen < 300) {
+        addrFrameCount[srcAddr] = (addrFrameCount[srcAddr] || 0) + 1;
+        i += 4 + recLen; // Skip to next record
+        continue;
+      }
+    }
+    i++;
+  }
+
+  // Build device list from detected addresses
+  const activeAddrs = Object.keys(addrFrameCount).map(Number).sort((a,b) => a-b);
+  let masterAddr = -1;
+
+  for (const addr of activeAddrs) {
+    const frameCount = addrFrameCount[addr];
+
+    // Heuristic: master typically has the most frames (it polls all slaves)
+    // But we DON'T assume — we just list as detected
+    if (addr <= 2 && frameCount > totalFrames * 0.3) {
+      masterAddr = addr;
+      data.network.masters++;
+      continue;
+    }
+
+    data.network.slaves++;
+    data._confidence.stationsFound++;
+
+    data.devices.push({
+      addr,
+      deviceType: 'Slave',
+      manufacturer: '',
+      model: '',
+      diagDx: 0,
+      timesLost: 0,
+      retryCount: 0,
+      processCount: frameCount,
+      abDiffVoltage: null,
+      idleVoltageAvg: null
+    });
+
+    data.addresses.push({
+      addr,
+      identNr: '',
+      manufacturer: '',
+      model: '',
+      revision: ''
+    });
+  }
+
+  if (data.network.masters === 0 && activeAddrs.length > 0) {
+    data.network.masters = 1; // Assume at least 1 master
+  }
+
+  // Store stats for the report
+  data._ptdStats = {
+    totalFrames,
+    cycleCount,
+    addrFrameCount,
+    avgFramesPerCycle: cycleCount > 0 ? Math.round(totalFrames / cycleCount) : 0
+  };
+
+  // Add info to confidence
+  data._confidence.warnings.push(
+    `Total de frames capturados: ${totalFrames.toLocaleString('pt-BR')}`,
+    `Ciclos de varredura do mestre: ${cycleCount.toLocaleString('pt-BR')}`,
+    `Média de frames por ciclo: ${data._ptdStats.avgFramesPerCycle}`
+  );
+
+  if (!data.network.name) data.network.name = 'Rede Profibus';
 
   return data;
 }
@@ -1852,6 +2060,94 @@ function fmtDate(iso){
 }
 
 /* ============================================================
+   CLASSIFICAÇÃO DE DIAGNÓSTICO — Rede Física / Automação / Ambos
+   REGRAS DE SEGURANÇA:
+   1. Nunca afirmar — sempre "indicação" ou "possível"
+   2. Só classificar com dados reais
+   3. Na dúvida → "Investigar ambos"
+   4. Rastreabilidade: mostrar dado fonte
+   5. Aviso beta explícito
+   ============================================================ */
+const DIAG_CATEGORY = {
+  FISICA: { label: 'Rede Física', icon: '🔌', color: '#2563eb', desc: 'Cabo, conector, terminador, blindagem, aterramento' },
+  AUTOMACAO: { label: 'Automação', icon: '⚙️', color: '#7c3aed', desc: 'CLP, GSD, parametrização, configuração de I/O' },
+  AMBOS: { label: 'Investigar ambos', icon: '🔍', color: '#d97706', desc: 'Pode ser rede física ou automação — verificar os dois' },
+  OK: { label: 'Normal', icon: '✓', color: '#16a34a', desc: 'Sem desvios detectados' }
+};
+
+function classifyDevice(dev, sig, sigQ, idle, idleQ, jit, jitQ, d) {
+  const issues = [];
+
+  if (sig != null && (sigQ === 'crit' || sigQ === 'warn')) {
+    issues.push({
+      cat: 'FISICA',
+      reason: `Tensão AB Diff ${sig} ${signalUnit()} — ${sigQ === 'crit' ? 'fora da faixa' : 'marginal'}`,
+      source: 'Tensão AB Diff extraída do arquivo .ptn'
+    });
+  }
+  if (idle != null && (idleQ === 'crit' || idleQ === 'warn')) {
+    issues.push({
+      cat: 'FISICA',
+      reason: `Tensão Idle ${idle} V — ${idleQ === 'crit' ? 'fora da faixa' : 'marginal'}`,
+      source: 'Tensão Idle extraída do arquivo .ptn'
+    });
+  }
+  if (jit != null && (jitQ === 'crit' || jitQ === 'warn')) {
+    issues.push({
+      cat: 'FISICA',
+      reason: `Jitter ${jit} µs — ${jitQ === 'crit' ? 'acima do limite' : 'marginal'}`,
+      source: 'Jitter extraído do arquivo'
+    });
+  }
+  if (dev.retryCount > 0) {
+    issues.push({
+      cat: 'FISICA',
+      reason: `${dev.retryCount} retentativa(s) registrada(s)`,
+      source: 'Retry count do registro do dispositivo'
+    });
+  }
+  if (dev.diagDx > 0) {
+    issues.push({
+      cat: 'AUTOMACAO',
+      reason: `${dev.diagDx} diagnóstico(s) em data exchange`,
+      source: 'Diag count while DX do registro do dispositivo'
+    });
+  }
+  if (dev.timesLost > 0) {
+    issues.push({
+      cat: 'AMBOS',
+      reason: `Perdeu comunicação ${dev.timesLost} vez(es)`,
+      source: 'Times lost do registro do dispositivo'
+    });
+  }
+  if (d.paramSlaves && d.paramSlaves.includes(dev.addr)) {
+    issues.push({
+      cat: 'AUTOMACAO',
+      reason: 'Parâmetros foram reenviados durante a medição',
+      source: 'Seção "Parameters sent" do ProfiTrace'
+    });
+  }
+
+  if (issues.length === 0) return { category: DIAG_CATEGORY.OK, issues: [] };
+
+  const cats = issues.map(i => i.cat);
+  const hasFisica = cats.includes('FISICA');
+  const hasAuto = cats.includes('AUTOMACAO');
+  const hasAmbos = cats.includes('AMBOS');
+
+  let finalCat;
+  if (hasAmbos || (hasFisica && hasAuto)) {
+    finalCat = DIAG_CATEGORY.AMBOS;
+  } else if (hasFisica) {
+    finalCat = DIAG_CATEGORY.FISICA;
+  } else {
+    finalCat = DIAG_CATEGORY.AUTOMACAO;
+  }
+
+  return { category: finalCat, issues };
+}
+
+/* ============================================================
    RENDER DO RELATÓRIO (estilo ProfiTrace)
    ============================================================ */
 function renderReport(){
@@ -1863,7 +2159,31 @@ function renderReport(){
   // Análise de qualidade
   const sigEntries = Object.entries(d.signals).map(([a,v]) => ({addr:parseInt(a,10), v, q:signalQuality(v)}));
   const jitEntries = Object.entries(d.jitters).map(([a,v]) => ({addr:parseInt(a,10), v, q:jitterQuality(v)}));
+  const idleEntriesAll = Object.entries(d.idleVoltages || {}).map(([a,v]) => ({addr:parseInt(a,10), v, q:idleQuality(v)}));
   const recs = generateRecommendations(d, tags, sigEntries, jitEntries);
+
+  // Calcular score de saúde (mesma lógica do dashboard)
+  let score = 100;
+  const critSignals = sigEntries.filter(s => s.q === 'crit').length;
+  const warnSignals = sigEntries.filter(s => s.q === 'warn').length;
+  const critJitter = jitEntries.filter(j => j.q === 'crit').length;
+  const warnJitter = jitEntries.filter(j => j.q === 'warn').length;
+  const critIdle = idleEntriesAll.filter(i => i.q === 'crit').length;
+  const warnIdle = idleEntriesAll.filter(i => i.q === 'warn').length;
+  const totalLost = d.devices.reduce((s,x) => s + (x.timesLost||0), 0);
+  const totalRetries = d.devices.reduce((s,x) => s + (x.retryCount||0), 0);
+  const totalDiag = d.devices.reduce((s,x) => s + (x.diagDx||0), 0);
+  score -= critSignals * 15;
+  score -= warnSignals * 5;
+  score -= critJitter * 12;
+  score -= warnJitter * 4;
+  score -= critIdle * 10;
+  score -= warnIdle * 3;
+  score -= totalLost * 20;
+  score -= totalRetries * 3;
+  score -= totalDiag * 5;
+  if (d.illegalDevices && d.illegalDevices.length > 0) score -= 25;
+  score = Math.max(0, Math.min(100, score));
 
   // Deviations já vem do parsing (caixa "Deviations found")
   const deviations = d.deviations || d.diagSlaves.length > 0 || d.lostSlaves.length > 0 || d.retrySlaves.length > 0
@@ -2374,6 +2694,81 @@ function renderReport(){
   reportDoc.innerHTML = html;
 }
 
+/* ============================================================
+   RENDER DA FORMA DE ONDA — Dados reais do @RawSampleData
+   Mostra a onda exatamente como capturada pelo ProfiCore.
+   ============================================================ */
+function renderWaveform(samples, addr) {
+  if (!samples || samples.length < 100) return '';
+  
+  const W = 600, H = 140;
+  const padL = 42, padR = 10, padT = 8, padB = 20;
+  const chartW = W - padL - padR;
+  const chartH = H - padT - padB;
+  
+  // Encontrar a região do pulso (onde o sinal sai do baseline)
+  const sorted = [...samples].sort((a,b) => a - b);
+  const median = sorted[Math.floor(sorted.length / 2)];
+  
+  // Encontrar primeiro e último ponto com sinal significativo
+  let pulseStart = 0, pulseEnd = samples.length - 1;
+  for (let i = 0; i < samples.length; i++) {
+    if (Math.abs(samples[i] - median) > 15) { pulseStart = Math.max(0, i - 30); break; }
+  }
+  for (let i = samples.length - 1; i >= 0; i--) {
+    if (Math.abs(samples[i] - median) > 15) { pulseEnd = Math.min(samples.length - 1, i + 30); break; }
+  }
+  
+  // Usar a região do pulso + margem, ou todo o sinal se não encontrar pulso
+  const viewStart = pulseStart;
+  const viewEnd = Math.min(pulseEnd, viewStart + 800); // Limitar a 800 pontos para legibilidade
+  const viewSamples = samples.slice(viewStart, viewEnd);
+  const n = viewSamples.length;
+  if (n < 20) return '';
+  
+  // Escala: ADC 0-255 mapeado para a área do gráfico
+  const adcMin = Math.max(0, Math.min(...viewSamples) - 10);
+  const adcMax = Math.min(255, Math.max(...viewSamples) + 10);
+  const adcRange = Math.max(adcMax - adcMin, 1);
+  
+  const xScale = i => padL + (i / (n - 1)) * chartW;
+  const yScale = v => padT + chartH - ((v - adcMin) / adcRange) * chartH;
+  
+  // Construir o path SVG com os pontos reais
+  let path = `M ${xScale(0)} ${yScale(viewSamples[0])}`;
+  // Agrupar pontos para suavizar sem perder informação
+  const step = Math.max(1, Math.floor(n / 500));
+  for (let i = 1; i < n; i += step) {
+    path += ` L ${xScale(i).toFixed(1)} ${yScale(viewSamples[i]).toFixed(1)}`;
+  }
+  
+  // Grid lines e labels
+  const gridSteps = 4;
+  let grid = '';
+  for (let g = 0; g <= gridSteps; g++) {
+    const y = padT + (g / gridSteps) * chartH;
+    grid += `<line x1="${padL}" x2="${W-padR}" y1="${y}" y2="${y}" stroke="#ddd" stroke-width="0.5" stroke-dasharray="2,2"/>`;
+  }
+  
+  // Linha de baseline (idle)
+  const baselineY = yScale(median);
+  grid += `<line x1="${padL}" x2="${W-padR}" y1="${baselineY}" y2="${baselineY}" stroke="#999" stroke-width="0.5" stroke-dasharray="4,2"/>`;
+  
+  return `
+    <div style="margin-top:6px;border:1px solid #ddd;border-radius:4px;padding:4px;background:#fafafa">
+      <div style="font-size:8pt;color:#666;margin-bottom:2px;font-weight:500">Forma de onda capturada — dados reais do ProfiCore</div>
+      <svg viewBox="0 0 ${W} ${H}" width="100%" style="max-width:${W}px;display:block">
+        <rect x="${padL}" y="${padT}" width="${chartW}" height="${chartH}" fill="#fff" stroke="#ccc" stroke-width="0.5"/>
+        ${grid}
+        <path d="${path}" fill="none" stroke="#2ea84a" stroke-width="1.2" stroke-linejoin="round"/>
+        <text x="${padL-4}" y="${padT+6}" text-anchor="end" font-size="7" fill="#999">+</text>
+        <text x="${padL-4}" y="${padT+chartH}" text-anchor="end" font-size="7" fill="#999">−</text>
+        <text x="${padL + chartW/2}" y="${H-2}" text-anchor="middle" font-size="7.5" fill="#999">Tempo (amostras)</text>
+      </svg>
+    </div>
+  `;
+}
+
 function renderDeviceBlock(addr, d, tags, classifications){
   const dev = d.devices.find(x => x.addr === addr) || {addr};
   const ai  = d.addresses.find(x => x.addr === addr) || {};
@@ -2446,6 +2841,7 @@ function renderDeviceBlock(addr, d, tags, classifications){
         ${dev.processCount!=null?`<div class="lbl">Process count:</div><div class="val">${dev.processCount}</div>`:''}
       </div>
       ${classificationHtml}
+      ${d.scopeData && d.scopeData[addr] ? renderWaveform(d.scopeData[addr].samples, addr) : ''}
     </div>
   `;
 }
@@ -2600,97 +2996,6 @@ function renderBarChart(entries, opts){
 /* ============================================================
    RECOMENDAÇÕES
    ============================================================ */
-/* ============================================================
-   CLASSIFICAÇÃO DE DIAGNÓSTICO — Rede Física / Automação / Ambos
-   REGRAS DE SEGURANÇA:
-   1. Nunca afirmar — sempre "indicação" ou "possível"
-   2. Só classificar com dados reais
-   3. Na dúvida → "Investigar ambos"
-   4. Rastreabilidade: mostrar dado fonte
-   5. Aviso beta explícito
-   ============================================================ */
-const DIAG_CATEGORY = {
-  FISICA: { label: 'Rede Física', icon: '🔌', color: '#2563eb', desc: 'Cabo, conector, terminador, blindagem, aterramento' },
-  AUTOMACAO: { label: 'Automação', icon: '⚙️', color: '#7c3aed', desc: 'CLP, GSD, parametrização, configuração de I/O' },
-  AMBOS: { label: 'Investigar ambos', icon: '🔍', color: '#d97706', desc: 'Pode ser rede física ou automação — verificar os dois' },
-  OK: { label: 'Normal', icon: '✓', color: '#16a34a', desc: 'Sem desvios detectados' }
-};
-
-function classifyDevice(dev, sig, sigQ, idle, idleQ, jit, jitQ, d) {
-  const issues = [];
-
-  // Regra 2: Só classificar com dados reais
-  if (sig != null && (sigQ === 'crit' || sigQ === 'warn')) {
-    issues.push({
-      cat: 'FISICA',
-      reason: `Tensão AB Diff ${sig} ${signalUnit()} — ${sigQ === 'crit' ? 'fora da faixa' : 'marginal'}`,
-      source: 'Tensão AB Diff extraída do arquivo .ptn'
-    });
-  }
-  if (idle != null && (idleQ === 'crit' || idleQ === 'warn')) {
-    issues.push({
-      cat: 'FISICA',
-      reason: `Tensão Idle ${idle} V — ${idleQ === 'crit' ? 'fora da faixa' : 'marginal'}`,
-      source: 'Tensão Idle extraída do arquivo .ptn'
-    });
-  }
-  if (jit != null && (jitQ === 'crit' || jitQ === 'warn')) {
-    issues.push({
-      cat: 'FISICA',
-      reason: `Jitter ${jit} µs — ${jitQ === 'crit' ? 'acima do limite' : 'marginal'}`,
-      source: 'Jitter extraído do arquivo'
-    });
-  }
-  if (dev.retryCount > 0) {
-    issues.push({
-      cat: 'FISICA',
-      reason: `${dev.retryCount} retentativa(s) registrada(s)`,
-      source: 'Retry count do registro do dispositivo'
-    });
-  }
-  if (dev.diagDx > 0) {
-    issues.push({
-      cat: 'AUTOMACAO',
-      reason: `${dev.diagDx} diagnóstico(s) em data exchange`,
-      source: 'Diag count while DX do registro do dispositivo'
-    });
-  }
-  if (dev.timesLost > 0) {
-    // Regra 3: Perda de comunicação pode ser ambos
-    issues.push({
-      cat: 'AMBOS',
-      reason: `Perdeu comunicação ${dev.timesLost} vez(es)`,
-      source: 'Times lost do registro do dispositivo'
-    });
-  }
-  if (d.paramSlaves && d.paramSlaves.includes(dev.addr)) {
-    issues.push({
-      cat: 'AUTOMACAO',
-      reason: 'Parâmetros foram reenviados durante a medição',
-      source: 'Seção "Parameters sent" do ProfiTrace'
-    });
-  }
-
-  if (issues.length === 0) return { category: DIAG_CATEGORY.OK, issues: [] };
-
-  // Determinar categoria predominante
-  const cats = issues.map(i => i.cat);
-  const hasFisica = cats.includes('FISICA');
-  const hasAuto = cats.includes('AUTOMACAO');
-  const hasAmbos = cats.includes('AMBOS');
-
-  let finalCat;
-  if (hasAmbos || (hasFisica && hasAuto)) {
-    finalCat = DIAG_CATEGORY.AMBOS; // Regra 3: na dúvida, investigar ambos
-  } else if (hasFisica) {
-    finalCat = DIAG_CATEGORY.FISICA;
-  } else {
-    finalCat = DIAG_CATEGORY.AUTOMACAO;
-  }
-
-  return { category: finalCat, issues };
-}
-
 function generateRecommendations(d, tags, sigEntries, jitEntries){
   const recs = [];
   const t = a => tags[a] ? `<strong>${esc(tags[a])}</strong> (end. ${a})` : `equipamento no endereço <strong>${a}</strong>`;
