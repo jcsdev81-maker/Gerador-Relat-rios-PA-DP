@@ -672,7 +672,8 @@ body{
 @media print{
   body{background:#fff !important;margin:0;padding:0}
   .app-header,.app-footer,.dropzone,.file-bar,.loading,.err-box,
-  .tabs-bar,#tab-setup,#tab-tags,#tab-dashboard,.report-toolbar{
+  .tabs-bar,#tab-setup,#tab-tags,#tab-dashboard,.report-toolbar,
+  .toast,#installBanner,#offlineBar{
     display:none !important;
   }
   .shell{
@@ -1105,6 +1106,11 @@ function renderDashboard(){
 
   score = Math.max(0, Math.min(100, score));
 
+  // TRAVA: Sem dados de sinal, score não pode ser 100 — é inconclusivo
+  if (sigEntries.length === 0 && jitEntries.length === 0 && d.devices.length > 0) {
+    score = Math.min(score, 50);
+  }
+
   // Animate score ring
   const arc = document.getElementById('dashScoreArc');
   const numEl = document.getElementById('dashScoreNum');
@@ -1127,6 +1133,10 @@ function renderDashboard(){
     verdictLabel.textContent = 'Rede saudável';
     verdictLabel.style.color = 'var(--good)';
     verdictSub.textContent = 'A rede está operando dentro dos parâmetros normais. Recomenda-se monitoramento periódico.';
+  } else if (score === 50 && sigEntries.length === 0 && d.devices.length > 0){
+    verdictLabel.textContent = 'Dados insuficientes';
+    verdictLabel.style.color = 'var(--warn)';
+    verdictSub.textContent = 'O arquivo não contém dados de nível de sinal. O relatório mostra apenas topologia e comunicação. Para análise completa, use um arquivo .ptn com dados de scope/sinal.';
   } else if (score >= 60){
     verdictLabel.textContent = 'Atenção necessária';
     verdictLabel.style.color = 'var(--warn)';
@@ -1161,12 +1171,12 @@ function renderDashboard(){
   const alertsEl = document.getElementById('dashAlerts');
   const alerts = [];
 
-  if (critSignals > 0) alerts.push({cls:'crit', icon:'⚠', msg:`${critSignals} dispositivo(s) com tensão AB Diff crítica (abaixo de ${signalLimits().warn_min} ${signalUnit()} ou acima de ${signalLimits().high_max} ${signalUnit()})`});
+  if (critSignals > 0) alerts.push({cls:'crit', icon:'⚠', msg:`${critSignals} dispositivo(s) com ${d.networkType === 'PA' ? 'nível de sinal PA' : 'tensão AB Diff'} crítico(a)`});
   if (critJitter > 0) alerts.push({cls:'crit', icon:'⚠', msg:`${critJitter} dispositivo(s) com jitter acima do limite (>${JITTER_LIMITS.warn_max} µs)`});
   if (critIdle > 0) alerts.push({cls:'crit', icon:'⚠', msg:`${critIdle} dispositivo(s) com tensão idle fora da faixa (ideal: ${DP_IDLE_LIMITS.good_min}–${DP_IDLE_LIMITS.good_max} V)`});
   if (totalLost > 0) alerts.push({cls:'crit', icon:'⚠', msg:`${totalLost} perda(s) de comunicação registrada(s) — verificar cabeamento e alimentação`});
   if (d.illegalDevices.length > 0) alerts.push({cls:'crit', icon:'⚠', msg:`Dispositivos com respostas ilegais: endereço(s) ${d.illegalDevices.join(', ')}`});
-  if (warnSignals > 0) alerts.push({cls:'warn', icon:'⚡', msg:`${warnSignals} dispositivo(s) com tensão na faixa de atenção (${signalLimits().warn_min}–${signalLimits().good_min} ${signalUnit()})`});
+  if (warnSignals > 0) alerts.push({cls:'warn', icon:'⚡', msg:`${warnSignals} dispositivo(s) com ${d.networkType === 'PA' ? 'sinal PA' : 'tensão AB Diff'} na faixa de atenção`});
   if (warnIdle > 0) alerts.push({cls:'warn', icon:'⚡', msg:`${warnIdle} dispositivo(s) com tensão idle marginalmente fora da faixa`});
   if (totalRetries > 0) alerts.push({cls:'warn', icon:'⚡', msg:`${totalRetries} retentativa(s) registrada(s) — possível degradação do meio físico`});
   if (totalDiag > 0) alerts.push({cls:'warn', icon:'⚡', msg:`${totalDiag} diagnóstico(s) gerados durante data exchange`});
@@ -1192,17 +1202,24 @@ Object.keys(meta_inputs).forEach(k => {
 });
 
 function persistMeta(){
-  try { localStorage.setItem('bp_profibus_meta', JSON.stringify(state.meta)); } catch(e){ /* private browsing */ }
+  // Salva meta vinculado ao nome do arquivo — não contamina entre relatórios
+  const key = state.file ? `bp_meta_${state.file.name}` : 'bp_profibus_meta';
+  try { localStorage.setItem(key, JSON.stringify(state.meta)); } catch(e){}
 }
 function loadMeta(){
+  // Carregar meta do arquivo atual — se for arquivo novo, começa limpo
+  const key = state.file ? `bp_meta_${state.file.name}` : 'bp_profibus_meta';
   try {
-    const s = localStorage.getItem('bp_profibus_meta');
+    const s = localStorage.getItem(key);
     if (s) {
       const parsed = JSON.parse(s);
       state.meta = { ...state.meta, ...parsed };
     }
-  } catch(e){ /* private browsing or corrupted data */ }
-  Object.keys(meta_inputs).forEach(k => { if (state.meta[k]) meta_inputs[k].value = state.meta[k]; });
+  } catch(e){}
+  // Atualizar campos do formulário
+  Object.keys(meta_inputs).forEach(k => {
+    meta_inputs[k].value = state.meta[k] || '';
+  });
   if (!state.meta.data) {
     const d = new Date();
     const iso = d.toISOString().slice(0,10);
@@ -1219,6 +1236,8 @@ async function handleFile(f){
   state.file = f;
   state.data = null;
   state.tags = {};
+  // Limpar metadados do relatório anterior — evita contaminar relatório novo com dados antigos
+  state.meta = { cliente:'', planta:'', area:'', tecnico:'', cargo:'', data:'', comentarios:'' };
   fileNameEl.textContent = f.name;
   fileMetaEl.textContent = (f.size/1024).toFixed(1) + ' KB';
   dropzone.classList.add('hidden');
@@ -1444,6 +1463,9 @@ function parsePtnFile(arrayBuffer) {
   const idleVoltPositions = findPattern('@idlevoltage\0');
   const timeoutPositions = findPattern('@TimeOutCounter\0');
   const processPositions = findPattern('@ProcessCount\0');
+  // PA-specific fields
+  const paSignalPositions = findPattern('PA signal level\0');
+  const paJitterPositions = findPattern('PA Jitter\0');
 
   // Parse "(N) Slave" or "(N) Master" patterns
   const stationLabels = [];
@@ -1483,6 +1505,33 @@ function parsePtnFile(arrayBuffer) {
         if (raw !== null && isValidRange(raw, 'voltage_ab')) {
           abDiffValue = Math.round(raw * 1000) / 1000;
           data._confidence.signalsFound++;
+        }
+        break;
+      }
+    }
+
+    // PA signal level — Se não achou AB Diff, procurar sinal PA (em Volts, converter para mV)
+    let paSignalMv = null;
+    if (abDiffValue === null) {
+      for (const psp of paSignalPositions) {
+        if (psp > st.pos && psp < nextPos) {
+          const raw = findFloatAfter(psp + 'PA signal level\0'.length, 80);
+          if (raw !== null && raw > 0.01 && raw < 2.0) { // PA signal em Volts: 0.01V a 2.0V
+            paSignalMv = Math.round(raw * 1000 * 10) / 10; // Converter V para mV, 1 casa decimal
+            data._confidence.signalsFound++;
+          }
+          break;
+        }
+      }
+    }
+
+    // PA Jitter
+    let paJitterValue = null;
+    for (const pjp of paJitterPositions) {
+      if (pjp > st.pos && pjp < nextPos) {
+        const raw = findFloatAfter(pjp + 'PA Jitter\0'.length, 80);
+        if (raw !== null && isValidRange(raw, 'jitter')) {
+          paJitterValue = Math.round(raw * 1000) / 1000;
         }
         break;
       }
@@ -1532,6 +1581,13 @@ function parsePtnFile(arrayBuffer) {
     // TRAVA: Só gravar tensão se o valor é fisicamente possível
     if (abDiffValue !== null) {
       data.signals[st.addr] = abDiffValue;
+    } else if (paSignalMv !== null) {
+      data.signals[st.addr] = paSignalMv; // PA: valor em mV
+    }
+
+    // PA Jitter
+    if (paJitterValue !== null) {
+      data.jitters[st.addr] = paJitterValue;
     }
 
     // Idle voltage — guardar média validada
@@ -2185,6 +2241,11 @@ function renderReport(){
   if (d.illegalDevices && d.illegalDevices.length > 0) score -= 25;
   score = Math.max(0, Math.min(100, score));
 
+  // TRAVA: Sem dados de sinal, score não pode ser 100 — é inconclusivo
+  if (sigEntries.length === 0 && jitEntries.length === 0 && d.devices.length > 0) {
+    score = Math.min(score, 50);
+  }
+
   // Deviations já vem do parsing (caixa "Deviations found")
   const deviations = d.deviations || d.diagSlaves.length > 0 || d.lostSlaves.length > 0 || d.retrySlaves.length > 0
                      || sigEntries.some(s => s.q === 'crit') || jitEntries.some(j => j.q === 'crit')
@@ -2278,7 +2339,10 @@ function renderReport(){
   // PÁGINA 0: RESUMO EXECUTIVO (para o corporativo)
   // ==================================================
   let verdictText, verdictColor;
-  if (score >= 85) { verdictText = 'REDE SAUDÁVEL'; verdictColor = '#16a34a'; }
+  const hasSignalData = sigEntries.length > 0 || jitEntries.length > 0;
+  if (!hasSignalData && d.devices.length > 0) {
+    verdictText = 'DADOS INSUFICIENTES'; verdictColor = '#d97706';
+  } else if (score >= 85) { verdictText = 'REDE SAUDÁVEL'; verdictColor = '#16a34a'; }
   else if (score >= 60) { verdictText = 'ATENÇÃO NECESSÁRIA'; verdictColor = '#d97706'; }
   else { verdictText = 'INTERVENÇÃO URGENTE'; verdictColor = '#dc2626'; }
 
@@ -2628,7 +2692,7 @@ function renderReport(){
         <div class="lbl">Baud rate:</div><div class="val">${d._confidence.baudFound ? '✓ Encontrado no arquivo' : '✗ Não encontrado'}</div>
         <div class="lbl">Número serial ProfiCore:</div><div class="val">${d._confidence.serialFound ? '✓ Encontrado' : '✗ Não encontrado'}</div>
         <div class="lbl">Estações detectadas:</div><div class="val">${d._confidence.stationsFound} de ${d.network.slaves + d.network.masters} identificadas</div>
-        <div class="lbl">Tensão AB Diff:</div><div class="val">${d._confidence.signalsFound} leituras válidas extraídas</div>
+        <div class="lbl">${d.networkType === 'PA' ? 'Nível de sinal PA:' : 'Tensão AB Diff:'}</div><div class="val">${d._confidence.signalsFound} leituras válidas extraídas${d._confidence.signalsFound === 0 && d.networkType === 'PA' ? ' (parser PA em desenvolvimento)' : ''}</div>
         <div class="lbl">Tensão Idle:</div><div class="val">${d._confidence.idleFound} leituras válidas extraídas</div>
       </div>
       ${d._confidence.warnings.length > 0 ? `
@@ -2847,7 +2911,7 @@ function renderDeviceBlock(addr, d, tags, classifications){
         ${manufacturer!=='—'?`<div class="lbl">Fabricante:</div><div class="val">${esc(manufacturer)}</div>`:''}
         ${model!=='—'?`<div class="lbl">Modelo:</div><div class="val">${esc(model)}</div>`:''}
         ${dev.ioStr?`<div class="lbl">I/O (bytes):</div><div class="val">${esc(dev.ioStr)}</div>`:''}
-        ${sig!=null?`<div class="lbl">Tensão AB Diff:</div><div class="val">${sig} ${signalUnit()} — ${statusLabel(sQ)}</div>`:`<div class="lbl">Tensão AB Diff:</div><div class="val" style="color:#999">— (não disponível)</div>`}
+        ${sig!=null?`<div class="lbl">${d.networkType === 'PA' ? 'Nível de sinal PA:' : 'Tensão AB Diff:'}</div><div class="val">${sig} ${signalUnit()} — ${statusLabel(sQ)}</div>`:`<div class="lbl">${d.networkType === 'PA' ? 'Nível de sinal PA:' : 'Tensão AB Diff:'}</div><div class="val" style="color:#999">— (não disponível neste arquivo)</div>`}
         ${idle!=null?`<div class="lbl">Tensão Idle:</div><div class="val">${idle} V — ${statusLabel(iQ)}</div>`:''}
         ${jit!=null?`<div class="lbl">Jitter:</div><div class="val">${jit} µs — ${statusLabel(jQ)}</div>`:''}
         <div class="lbl">Diag. count em DX:</div><div class="val">${dev.diagDx||0}</div>
@@ -3018,13 +3082,19 @@ function generateRecommendations(d, tags, sigEntries, jitEntries){
 
   // TRAVA: Só gera recomendações baseadas em dados REAIS encontrados no arquivo
   sigEntries.filter(s => s.q === 'crit' && s.v < signalLimits().warn_min).forEach(s => {
-    recs.push(`<strong>TENSÃO BAIXA</strong> — ${t(s.addr)}: sinal medido <strong>${s.v} ${signalUnit()}</strong> (mínimo: ${signalLimits().warn_min} ${signalUnit()}).
-      <br><em>Procedimento:</em> (1) Verificar aperto dos conectores no dispositivo e no trunk; (2) Medir continuidade do cabo com multímetro; (3) Verificar blindagem e aterramento em ponto único; (4) Se persistir, substituir o trecho de cabo entre o último dispositivo OK e este.`);
+    const sigLabel = d.networkType === 'PA' ? 'SINAL PA BAIXO' : 'TENSÃO BAIXA';
+    recs.push(`<strong>${sigLabel}</strong> — ${t(s.addr)}: sinal medido <strong>${s.v} ${signalUnit()}</strong> (mínimo: ${signalLimits().warn_min} ${signalUnit()}).
+      <br><em>Procedimento:</em> ${d.networkType === 'PA'
+        ? '(1) Verificar alimentação do acoplador DP/PA; (2) Medir corrente do segmento PA; (3) Verificar impedância do trunk PA; (4) Checar polaridade do cabo.'
+        : '(1) Verificar aperto dos conectores no dispositivo e no trunk; (2) Medir continuidade do cabo com multímetro; (3) Verificar blindagem e aterramento em ponto único; (4) Se persistir, substituir o trecho de cabo entre o último dispositivo OK e este.'}`);
   });
 
   sigEntries.filter(s => s.v > signalLimits().high_max).forEach(s => {
-    recs.push(`<strong>TENSÃO ELEVADA</strong> — ${t(s.addr)}: sinal medido <strong>${s.v} ${signalUnit()}</strong> (máximo: ${signalLimits().high_max} ${signalUnit()}).
-      <br><em>Procedimento:</em> (1) Verificar se há dois dispositivos no mesmo endereço; (2) Verificar terminadores de rede — excesso de terminação gera sobreposição; (3) Checar impedância do acoplador.`);
+    const sigLabel = d.networkType === 'PA' ? 'SINAL PA ELEVADO' : 'TENSÃO ELEVADA';
+    recs.push(`<strong>${sigLabel}</strong> — ${t(s.addr)}: sinal medido <strong>${s.v} ${signalUnit()}</strong> (máximo: ${signalLimits().high_max} ${signalUnit()}).
+      <br><em>Procedimento:</em> ${d.networkType === 'PA'
+        ? '(1) Verificar se há dispositivo com saída de corrente acima do especificado; (2) Checar impedância do acoplador.'
+        : '(1) Verificar se há dois dispositivos no mesmo endereço; (2) Verificar terminadores de rede — excesso de terminação gera sobreposição; (3) Checar impedância do acoplador.'}`);
   });
 
   sigEntries.filter(s => s.q === 'warn').forEach(s => {
