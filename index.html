@@ -916,9 +916,14 @@ const state = {
    TRAVAS ANTI-ERRO — Limites baseados nas normas IEC 61158 / IEC 61784
    Valores FIXOS, não inventados. Se o dado cai fora, é descartado.
    ============================================================ */
+// PA: norma IEC 61158-2 MBP — sinal em mV
 const SIGNAL_LIMITS = { good_min:500, warn_min:350, high_max:1000 };
-const JITTER_LIMITS = { good_max:1.5, warn_max:3.0 };
+// DP: norma RS-485 — tensão diferencial AB em V
 const DP_SIGNAL_LIMITS = { good_min:4.0, warn_min:2.0, high_max:7.0 };
+// Jitter: limite por tipo de rede
+const JITTER_LIMITS = { good_max:1.5, warn_max:3.0 };       // DP: 3 µs
+const PA_JITTER_LIMITS = { good_max:0.8, warn_max:1.5 };    // PA: 1.5 µs (mais sensível)
+// Idle voltage: SOMENTE DP (PA não tem idle voltage por usar MBP)
 const DP_IDLE_LIMITS = { good_min:0.4, good_max:1.2, warn_min:0.2, warn_max:1.5 };
 
 // Validação: faixas fisicamente possíveis (trava contra lixo binário)
@@ -954,9 +959,13 @@ function signalQuality(val){
 }
 function jitterQuality(us){
   if (us == null) return 'unknown';
-  if (us <= JITTER_LIMITS.good_max) return 'ok';
-  if (us <= JITTER_LIMITS.warn_max) return 'warn';
+  const lim = state.data && state.data.networkType === 'PA' ? PA_JITTER_LIMITS : JITTER_LIMITS;
+  if (us <= lim.good_max) return 'ok';
+  if (us <= lim.warn_max) return 'warn';
   return 'crit';
+}
+function jitterLimits(){
+  return state.data && state.data.networkType === 'PA' ? PA_JITTER_LIMITS : JITTER_LIMITS;
 }
 function signalUnit(){
   return state.data && state.data.networkType === 'DP' ? 'V' : 'mV';
@@ -1172,7 +1181,7 @@ function renderDashboard(){
   const alerts = [];
 
   if (critSignals > 0) alerts.push({cls:'crit', icon:'⚠', msg:`${critSignals} dispositivo(s) com ${d.networkType === 'PA' ? 'nível de sinal PA' : 'tensão AB Diff'} crítico(a)`});
-  if (critJitter > 0) alerts.push({cls:'crit', icon:'⚠', msg:`${critJitter} dispositivo(s) com jitter acima do limite (>${JITTER_LIMITS.warn_max} µs)`});
+  if (critJitter > 0) alerts.push({cls:'crit', icon:'⚠', msg:`${critJitter} dispositivo(s) com jitter acima do limite (>${jitterLimits().warn_max} µs)`});
   if (critIdle > 0) alerts.push({cls:'crit', icon:'⚠', msg:`${critIdle} dispositivo(s) com tensão idle fora da faixa (ideal: ${DP_IDLE_LIMITS.good_min}–${DP_IDLE_LIMITS.good_max} V)`});
   if (totalLost > 0) alerts.push({cls:'crit', icon:'⚠', msg:`${totalLost} perda(s) de comunicação registrada(s) — verificar cabeamento e alimentação`});
   if (d.illegalDevices.length > 0) alerts.push({cls:'crit', icon:'⚠', msg:`Dispositivos com respostas ilegais: endereço(s) ${d.illegalDevices.join(', ')}`});
@@ -1236,8 +1245,26 @@ async function handleFile(f){
   state.file = f;
   state.data = null;
   state.tags = {};
-  // Limpar metadados do relatório anterior — evita contaminar relatório novo com dados antigos
+  // RESET COMPLETO — Bug fix: dados de relatório anterior não podem vazar
   state.meta = { cliente:'', planta:'', area:'', tecnico:'', cargo:'', data:'', comentarios:'' };
+
+  // RESET VISUAL DO FORMULÁRIO — campos voltam ao estado limpo
+  if (typeof meta_inputs !== 'undefined') {
+    Object.keys(meta_inputs).forEach(k => {
+      if (meta_inputs[k]) meta_inputs[k].value = '';
+    });
+    // Re-aplicar data atual se o campo de data existe
+    if (meta_inputs.data) {
+      const today = new Date().toISOString().slice(0,10);
+      meta_inputs.data.value = today;
+      state.meta.data = today;
+    }
+  }
+
+  // RESET VISUAL DA LISTA DE TAGS
+  const tagListEl = document.getElementById('tagList');
+  if (tagListEl) tagListEl.innerHTML = '';
+
   fileNameEl.textContent = f.name;
   fileMetaEl.textContent = (f.size/1024).toFixed(1) + ' KB';
   dropzone.classList.add('hidden');
@@ -1277,8 +1304,9 @@ async function handleFile(f){
       loadingTitle.textContent = 'Processando dados...';
       loadingDesc.textContent = 'Construindo relatório';
     } else if (isPtd) {
+      // BUG FIX: Era 'file.arrayBuffer()' mas a variável é 'f'. E buf já foi lido acima.
       loadingTitle.textContent = 'Lendo arquivo .ptd...';
-      const buf = await file.arrayBuffer();
+      loadingDesc.textContent = 'Analisando captura de telegramas';
       data = parsePtdFile(buf);
       if (!data || data._confidence.stationsFound === 0) {
         throw new Error('Não foi possível extrair dados do arquivo .ptd. Para relatório completo, use o arquivo .ptn (Network Manager) da mesma medição.');
@@ -1304,6 +1332,9 @@ async function handleFile(f){
     }
 
     state.data = data;
+
+    // Carregar metadados específicos deste arquivo (se existirem) e atualizar o form
+    loadMeta();
     loadTags();
     buildTagList();
 
@@ -2040,7 +2071,10 @@ function extractAddrValuePairs(block, target, allowDecimal){
    ============================================================ */
 function loadTags(){
   if (!state.data) return;
-  const key = `bp_profibus_tags_${state.data.network.name || 'default'}`;
+  // Tags vinculadas ao nome do arquivo + nome da rede — evita vazamento entre arquivos
+  const fileKey = state.file ? state.file.name : 'default';
+  const netKey = state.data.network.name || 'rede';
+  const key = `bp_profibus_tags_${fileKey}_${netKey}`;
   try {
     const s = localStorage.getItem(key);
     if (s) state.tags = JSON.parse(s);
@@ -2048,7 +2082,9 @@ function loadTags(){
 }
 function saveTags(){
   if (!state.data) return;
-  const key = `bp_profibus_tags_${state.data.network.name || 'default'}`;
+  const fileKey = state.file ? state.file.name : 'default';
+  const netKey = state.data.network.name || 'rede';
+  const key = `bp_profibus_tags_${fileKey}_${netKey}`;
   try { localStorage.setItem(key, JSON.stringify(state.tags)); } catch{}
 }
 
@@ -2215,7 +2251,8 @@ function renderReport(){
   // Análise de qualidade
   const sigEntries = Object.entries(d.signals).map(([a,v]) => ({addr:parseInt(a,10), v, q:signalQuality(v)}));
   const jitEntries = Object.entries(d.jitters).map(([a,v]) => ({addr:parseInt(a,10), v, q:jitterQuality(v)}));
-  const idleEntriesAll = Object.entries(d.idleVoltages || {}).map(([a,v]) => ({addr:parseInt(a,10), v, q:idleQuality(v)}));
+  const isPA = d.networkType === 'PA';
+  const idleEntriesAll = isPA ? [] : Object.entries(d.idleVoltages || {}).map(([a,v]) => ({addr:parseInt(a,10), v, q:idleQuality(v)}));
   const recs = generateRecommendations(d, tags, sigEntries, jitEntries);
 
   // Calcular score de saúde (mesma lógica do dashboard)
@@ -2261,7 +2298,9 @@ function renderReport(){
 
   const devicesPerPage = 4;
   const devicePagesNum = Math.ceil(sortedAddrs.length / devicesPerPage) || 0;
-  const totalPages = 1 + 6 + devicePagesNum + 1 + 1; // exec + 6 seções + devices + recomendações + glossário
+  // Pré-calcular se a página 6 (gráficos jitter/idle) terá conteúdo
+  const _hasPage6 = jitEntries.length > 0 || (!isPA && idleEntriesAll.length > 0);
+  const totalPages = 1 + 5 + (_hasPage6 ? 1 : 0) + devicePagesNum + 1 + 1; // exec + páginas 1-5 + page6 condicional + devices + recom + glossário
 
   function pageWrap(content){
     pageNum++;
@@ -2492,8 +2531,8 @@ function renderReport(){
         ${subjRow('6.3', 'Dispositivos que causaram respostas ilegais', d.illegalDevices)}
         ${subjRow('6.4', 'Dispositivo no endereço reservado 126', d.reservedDevice)}
         ${subjRow('6.5', 'Escravos que causaram retentativas (retries)', d.retrySlaves)}
-        ${subjRow('6.6', 'Escravos que causaram syncs', d.syncSlaves, 'Alguns DCS ABB enviam syncs continuamente — sem efeito na comunicação.')}
-        ${subjRow('6.7', 'Parâmetros enviados aos seguintes escravos', d.paramSlaves)}
+        ${isPA ? '' : subjRow('6.6', 'Escravos que causaram syncs', d.syncSlaves, 'Alguns DCS ABB enviam syncs continuamente — sem efeito na comunicação.')}
+        ${subjRow(isPA ? '6.6' : '6.7', 'Parâmetros enviados aos seguintes escravos', d.paramSlaves)}
       </div>
     </div>
   `);
@@ -2562,7 +2601,7 @@ function renderReport(){
     <div class="pt-section">
       <h2>9 Gráfico de barras</h2>
       <h3>9.1 Segmento (Segmento 1)</h3>
-      <div class="pt-fields" style="margin-bottom:12px"><div class="lbl">Tipo de segmento:</div><div class="val">&lt;não definido&gt;</div></div>
+      <div class="pt-fields" style="margin-bottom:12px"><div class="lbl">Tipo de segmento:</div><div class="val">Profibus ${d.networkType || "DP"}</div></div>
 
       <h4>9.1.1 Ponto de medição (Ponto de medição 1)</h4>
       <div class="pt-bargraph">
@@ -2584,66 +2623,74 @@ function renderReport(){
   `);
 
   // ==================================================
-  // PÁGINA 6: Seção 9 (cont) — Jitter ou Idle Voltage
+  // PÁGINA 6: ADAPTATIVA por tipo de rede
+  // PA: só Jitter PA (sem idle, sem AB Diff stable)
+  // DP: Jitter DP + Tensão Idle
+  // Se nenhum dos dois, página é OMITIDA (não desperdiça espaço)
   // ==================================================
   const hasJitter = jitEntries.length > 0;
-  const idleEntries = Object.entries(d.idleVoltages || {}).map(([a,v]) => ({addr:parseInt(a,10), v, q:idleQuality(v)}));
+  const idleEntries = idleEntriesAll;
   const hasIdle = idleEntries.length > 0;
+  const hasPage6Content = hasJitter || hasIdle;
 
-  let page6Content = '';
-  if (hasJitter) {
-    page6Content += `
-      <div class="pt-bargraph">
-        <div class="pt-bargraph-title">Jitter ${d.networkType === 'DP' ? 'DP' : 'PA'}</div>
-        <div class="pt-bargraph-sub">Segmento / Ponto de medição: Segmento 1 / Ponto de medição 1 (1/1)</div>
-        <div class="pt-bargraph-svg-wrap">
-          ${renderBarChart(jitEntries, {
-            unit:'µs',
-            yMax:9,
-            yStep:1,
-            inverted:true,
-            referenceLines:[
-              {y:JITTER_LIMITS.warn_max, color:'#d63838', dash:'2,2'}
-            ],
-            tags
-          })}
+  let page6 = ''; // Vazio = página omitida
+  if (hasPage6Content) {
+    let page6Content = '';
+    if (hasJitter) {
+      const jitLim = isPA ? PA_JITTER_LIMITS : JITTER_LIMITS;
+      const jitYMax = isPA ? 3 : 9;       // PA: escala 0-3 µs (valores típicos 0.25-1.5)
+      const jitYStep = isPA ? 0.5 : 1;
+      page6Content += `
+        <div class="pt-bargraph">
+          <div class="pt-bargraph-title">Jitter ${isPA ? 'PA' : 'DP'}</div>
+          <div class="pt-bargraph-sub">Variação no tempo de resposta — limite de atenção: ${jitLim.warn_max} µs</div>
+          <div class="pt-bargraph-svg-wrap">
+            ${renderBarChart(jitEntries, {
+              unit:'µs',
+              yMax:jitYMax,
+              yStep:jitYStep,
+              inverted:true,
+              referenceLines:[
+                {y:jitLim.good_max, color:'#2ea84a', dash:'3,2'},
+                {y:jitLim.warn_max, color:'#d63838', dash:'2,2'}
+              ],
+              tags
+            })}
+          </div>
         </div>
-      </div>
-    `;
-  }
-  if (hasIdle) {
-    page6Content += `
-      <div class="pt-bargraph">
-        <div class="pt-bargraph-title">Tensão Idle por estação</div>
-        <div class="pt-bargraph-sub">Valor médio da tensão de repouso (idle) da linha — faixa ideal: ${DP_IDLE_LIMITS.good_min}V a ${DP_IDLE_LIMITS.good_max}V</div>
-        <div class="pt-bargraph-svg-wrap">
-          ${renderBarChart(idleEntries, {
-            unit:'V',
-            yMax:2.0,
-            yStep:0.2,
-            inverted:false,
-            referenceLines:[
-              {y:DP_IDLE_LIMITS.good_min, color:'#2ea84a', dash:'3,2'},
-              {y:DP_IDLE_LIMITS.good_max, color:'#2ea84a', dash:'3,2'},
-              {y:DP_IDLE_LIMITS.warn_max, color:'#d63838', dash:'2,2'}
-            ],
-            tags,
-            qualityFn: idleQuality
-          })}
+      `;
+    }
+    if (hasIdle) {
+      // SOMENTE DP — PA não tem idle voltage
+      page6Content += `
+        <div class="pt-bargraph">
+          <div class="pt-bargraph-title">Tensão Idle por estação (DP)</div>
+          <div class="pt-bargraph-sub">Tensão de repouso da linha — faixa ideal: ${DP_IDLE_LIMITS.good_min}V a ${DP_IDLE_LIMITS.good_max}V (terminação 220Ω/390Ω/5V)</div>
+          <div class="pt-bargraph-svg-wrap">
+            ${renderBarChart(idleEntries, {
+              unit:'V',
+              yMax:2.0,
+              yStep:0.2,
+              inverted:false,
+              referenceLines:[
+                {y:DP_IDLE_LIMITS.good_min, color:'#2ea84a', dash:'3,2'},
+                {y:DP_IDLE_LIMITS.good_max, color:'#2ea84a', dash:'3,2'},
+                {y:DP_IDLE_LIMITS.warn_max, color:'#d63838', dash:'2,2'}
+              ],
+              tags,
+              qualityFn: idleQuality
+            })}
+          </div>
         </div>
+      `;
+    }
+    page6 = pageWrap(`
+      <div class="pt-section">
+        <h2>9 Gráfico de barras (continuação)</h2>
+        ${page6Content}
       </div>
-    `;
+    `);
   }
-  if (!hasJitter && !hasIdle) {
-    page6Content = '<p style="text-align:center;color:#666;padding:30px;font-style:italic">Dados de jitter e tensão idle não disponíveis neste arquivo.</p>';
-  }
-
-  const page6 = pageWrap(`
-    <div class="pt-section">
-      <h2>9 Gráfico de barras (continuação)</h2>
-      ${page6Content}
-    </div>
-  `);
 
   // ==================================================
   // PÁGINAS 7+: Seção 10 — Device details (4 devices por página)
@@ -2657,7 +2704,7 @@ function renderReport(){
         <div class="pt-section">
           <h2>10 Detalhamento por dispositivo</h2>
           <h3>10.1 Segmento (Segmento 1)</h3>
-          <div class="pt-fields" style="margin-bottom:12px"><div class="lbl">Tipo de segmento:</div><div class="val">&lt;não definido&gt;</div></div>
+          <div class="pt-fields" style="margin-bottom:12px"><div class="lbl">Tipo de segmento:</div><div class="val">Profibus ${d.networkType || "DP"}</div></div>
           <h4>10.1.1 Ponto de medição (Ponto de medição 1)</h4>
         </div>
       `;
@@ -2738,7 +2785,7 @@ function renderReport(){
           <tr><td><b>Baud Rate</b></td><td>Velocidade de comunicação da rede em bits por segundo. DP comum: 93.75 kbps a 12 Mbps. PA: 31.25 kbps.</td></tr>
           <tr><td><b>AB Diff Voltage</b></td><td>Tensão diferencial entre as linhas A e B do cabo. Indica a qualidade do sinal elétrico. Faixa DP ideal: ${DP_SIGNAL_LIMITS.good_min}V a ${DP_SIGNAL_LIMITS.high_max}V.</td></tr>
           <tr><td><b>Idle Voltage</b></td><td>Tensão de repouso da linha quando nenhum dispositivo está transmitindo. Ideal: ${DP_IDLE_LIMITS.good_min}V a ${DP_IDLE_LIMITS.good_max}V.</td></tr>
-          <tr><td><b>Jitter</b></td><td>Variação no tempo de resposta do sinal. Jitter alto indica instabilidade na comunicação. Limite: ${JITTER_LIMITS.warn_max} µs.</td></tr>
+          <tr><td><b>Jitter</b></td><td>Variação no tempo de resposta do sinal. Jitter alto indica instabilidade na comunicação. Limite DP: ${JITTER_LIMITS.warn_max} µs. Limite PA: ${PA_JITTER_LIMITS.warn_max} µs.</td></tr>
           <tr><td><b>Retry</b></td><td>Retentativa automática do mestre quando um escravo não responde. Retries frequentes indicam problemas no meio físico.</td></tr>
           <tr><td><b>Diagnostics (Diag)</b></td><td>Mensagens de diagnóstico enviadas pelo escravo ao mestre informando falhas ou condições anormais.</td></tr>
           <tr><td><b>Live List</b></td><td>Mapa visual de todos os endereços (0 a 126) mostrando quais estações estão ativas na rede.</td></tr>
@@ -2752,6 +2799,14 @@ function renderReport(){
           <tr><td><b>Terminador</b></td><td>Resistor de terminação (220Ω série + 390Ω pull-up/pull-down com 5V) nas extremidades do segmento. Obrigatório em ambas as pontas. Gera tensão idle de ~0.9V.</td></tr>
           <tr><td><b>Segmento</b></td><td>Trecho físico do barramento. Máximo 32 dispositivos e comprimento conforme a velocidade (ver tabela abaixo). Segmentos são interligados por repetidores.</td></tr>
           <tr><td><b>Repetidor</b></td><td>Regenera o sinal entre segmentos. Permite ultrapassar o limite de 32 dispositivos e de comprimento. Máximo 3 repetidores em série recomendado.</td></tr>
+          ${isPA ? `
+          <tr><td><b>MBP</b></td><td>Manchester Bus Powered — sinalização do PROFIBUS PA (IEC 61158-2): codificação Manchester com alimentação pelo barramento.</td></tr>
+          <tr><td><b>Acoplador DP/PA</b></td><td>Dispositivo que converte PROFIBUS DP (RS-485) em PROFIBUS PA (MBP). Pode ser transparente (gateway) ou link (com endereço próprio).</td></tr>
+          <tr><td><b>Segment Coupler</b></td><td>Acoplador que alimenta o segmento PA e isola galvanicamente da rede DP. Limitado em corrente (tipicamente 100–500 mA).</td></tr>
+          <tr><td><b>FISCO / FNICO</b></td><td>Modelos de segurança intrínseca para áreas classificadas. FISCO (Ex ia) limita energia. FNICO (Ex nA) é menos restritivo.</td></tr>
+          <tr><td><b>PA signal level</b></td><td>Amplitude do sinal Manchester medida pelo ProfiCore, em mV pico-a-pico. Faixa OK: ≥ 500 mV. Crítico: < 350 mV.</td></tr>
+          <tr><td><b>DC Voltage</b></td><td>Tensão contínua do barramento PA — alimentação do segmento. Tipicamente 9–32 V DC fornecida pelo Power Conditioner.</td></tr>
+          ` : ''}
         </tbody>
       </table>
       <h3 style="margin-top:14px">Comprimento máximo por segmento (cabo tipo A, IEC 61158-2)</h3>
@@ -3109,7 +3164,8 @@ function generateRecommendations(d, tags, sigEntries, jitEntries){
   });
 
   jitEntries.filter(j => j.q === 'crit').forEach(j => {
-    recs.push(`<strong>JITTER ELEVADO</strong> — ${t(j.addr)}: <strong>${j.v} µs</strong> (máximo: ${JITTER_LIMITS.warn_max} µs).
+    const jLim = (d.networkType === 'PA' ? PA_JITTER_LIMITS : JITTER_LIMITS).warn_max;
+    recs.push(`<strong>JITTER ELEVADO</strong> — ${t(j.addr)}: <strong>${j.v} µs</strong> (máximo ${d.networkType || 'DP'}: ${jLim} µs).
       <br><em>Procedimento:</em> (1) Verificar terminadores em ambas as extremidades do segmento; (2) Medir comprimento total do trunk — não deve exceder limite da velocidade; (3) Afastar cabos de fontes de interferência (inversores, motores, contatoras).`);
   });
 
