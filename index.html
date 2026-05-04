@@ -223,6 +223,14 @@ body{
 .loading p{color:var(--muted);font-size:13px}
 
 .err-box{padding:24px;text-align:center;background:#fef4f4;border:1px solid #f5c6c6;border-radius:var(--radius)}
+.restore-bar{
+  display:flex;align-items:center;justify-content:space-between;gap:12px;
+  padding:10px 14px;margin-bottom:14px;
+  background:#fff8e1;border:1px solid #ffe082;border-left:4px solid #ffd400;
+  border-radius:6px;font-size:9.5pt;color:#5d4900;
+}
+.restore-bar .btn-row{display:flex;gap:6px}
+.btn.btn-sm{padding:4px 10px;font-size:9pt}
 .err-box strong{display:block;color:var(--crit);font-size:15px;margin-bottom:6px}
 .err-box p{color:var(--text-2);font-size:13px;margin-bottom:14px;font-family:var(--font-mono)}
 
@@ -784,7 +792,10 @@ body{
           <span class="meta" id="fileMeta">— KB</span>
         </div>
       </div>
-      <button class="btn btn-ghost" id="btnReset">Novo arquivo</button>
+      <div style="display:flex;gap:8px">
+        <button class="btn btn-ghost" id="btnClearHistory" title="Apaga todas as tags e metadados salvos no navegador">🧹 Limpar histórico</button>
+        <button class="btn btn-ghost" id="btnReset">Novo arquivo</button>
+      </div>
     </div>
 
     <div id="loadingBox" class="loading hidden">
@@ -843,6 +854,13 @@ body{
         <span class="desc">Dados que aparecem no relatório</span>
       </div>
       <div class="panel-body">
+        <div id="metaRestoreBar" class="restore-bar hidden">
+          <span>📋 Há metadados salvos para este arquivo (de uma sessão anterior)</span>
+          <div class="btn-row">
+            <button class="btn btn-sm" id="btnRestoreMeta">Restaurar</button>
+            <button class="btn btn-sm btn-ghost" id="btnIgnoreMeta">Ignorar</button>
+          </div>
+        </div>
         <div class="form-grid">
           <div class="form-field"><label>Cliente / Unidade</label><input type="text" id="f-cliente" placeholder="Ex: Usina Santa Helena"></div>
           <div class="form-field"><label>Planta / Setor</label><input type="text" id="f-planta" placeholder="Ex: Destilaria"></div>
@@ -863,6 +881,13 @@ body{
         <span class="desc">Identifique cada instrumento pelo TAG (opcional)</span>
       </div>
       <div class="panel-body">
+        <div id="tagsRestoreBar" class="restore-bar hidden">
+          <span>🏷️ Há TAGs salvas para este arquivo (de uma sessão anterior)</span>
+          <div class="btn-row">
+            <button class="btn btn-sm" id="btnRestoreTags">Restaurar TAGs</button>
+            <button class="btn btn-sm btn-ghost" id="btnIgnoreTags">Ignorar</button>
+          </div>
+        </div>
         <div class="tag-search">
           <span class="search-icon">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
@@ -1028,14 +1053,131 @@ fileInput.addEventListener('change', e => {
   if (f) handleFile(f);
 });
 
-$('#btnReset').addEventListener('click', () => {
+/* ============================================================
+   RESET COMPLETO — Limpa estado, DOM, formulários
+   Usado pelo botão "Novo Relatório" e pelo handleFile
+   ============================================================ */
+function resetCompleto(opts = {}) {
+  const { keepFileInput = false } = opts;
+
+  // 1. Reset do estado
   state.file = null;
   state.data = null;
   state.tags = {};
-  fileInput.value = '';
+  state.meta = { cliente:'', planta:'', area:'', tecnico:'', cargo:'', data:'', comentarios:'' };
+
+  // 2. Reset visual dos formulários (campos da aba Setup)
+  if (typeof meta_inputs !== 'undefined') {
+    Object.keys(meta_inputs).forEach(k => {
+      if (meta_inputs[k]) meta_inputs[k].value = '';
+    });
+    if (meta_inputs.data) {
+      const today = new Date().toISOString().slice(0,10);
+      meta_inputs.data.value = today;
+      state.meta.data = today;
+    }
+  }
+
+  // 3. Reset visual da lista de TAGs
+  const tagListEl = document.getElementById('tagList');
+  if (tagListEl) tagListEl.innerHTML = '';
+  const tagCountEl = document.getElementById('tagCount');
+  if (tagCountEl) tagCountEl.textContent = '0';
+  const tagSearchEl = document.getElementById('tagSearchInput');
+  if (tagSearchEl) tagSearchEl.value = '';
+
+  // 4. Reset do dashboard (zera os números)
+  const dashScoreNum = document.getElementById('dashScoreNum');
+  if (dashScoreNum) dashScoreNum.textContent = '—';
+  const dashScoreArc = document.getElementById('dashScoreArc');
+  if (dashScoreArc) dashScoreArc.style.strokeDashoffset = '327';
+  const dashKpis = document.getElementById('dashKpis');
+  if (dashKpis) dashKpis.innerHTML = '';
+  const dashAlerts = document.getElementById('dashAlerts');
+  if (dashAlerts) dashAlerts.innerHTML = '';
+  const verdictLabel = document.getElementById('dashVerdictLabel');
+  if (verdictLabel) verdictLabel.textContent = '';
+  const verdictSub = document.getElementById('dashVerdictSub');
+  if (verdictSub) verdictSub.textContent = '';
+
+  // 5. Reset do conteúdo do relatório
+  const reportDoc = document.getElementById('reportDoc');
+  if (reportDoc) reportDoc.innerHTML = '';
+
+  // 6. Reset do file input (permite re-selecionar mesmo arquivo)
+  if (!keepFileInput) {
+    fileInput.value = '';
+  }
+
+  // 7. Reset visual da UI principal — volta para dropzone
   workspace.classList.add('hidden');
   dropzone.classList.remove('hidden');
+  loadingBox.classList.add('hidden');
+  errBox.classList.add('hidden');
+  tabsBar.classList.add('hidden');
+  $$('.tab-content').forEach(el => el.classList.add('hidden'));
+
+  // 8. Status
   setStatus('', 'Pronto');
+}
+
+/* ============================================================
+   LIMPAR HISTÓRICO — Apaga localStorage de tags e metadados
+   Usado quando o usuário quer começar do absoluto zero
+   ============================================================ */
+function limparHistorico() {
+  try {
+    const keys = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (k && (k.startsWith('bp_meta_') || k.startsWith('bp_profibus_tags_') || k === 'bp_profibus_meta')) {
+        keys.push(k);
+      }
+    }
+    keys.forEach(k => localStorage.removeItem(k));
+    return keys.length;
+  } catch (e) {
+    return 0;
+  }
+}
+
+$('#btnReset').addEventListener('click', () => {
+  // Reset rápido — não pergunta, só limpa e volta pro dropzone
+  resetCompleto();
+});
+
+$('#btnClearHistory').addEventListener('click', () => {
+  const ok = confirm('Apagar todas as TAGs e metadados salvos no navegador?\n\nIsso afeta TODOS os arquivos abertos anteriormente. O arquivo atual também volta ao estado limpo.\n\nEsta ação não pode ser desfeita.');
+  if (!ok) return;
+  const removed = limparHistorico();
+  resetCompleto();
+  showToast(`✓ Histórico limpo (${removed} item${removed === 1 ? '' : 'ns'} removido${removed === 1 ? '' : 's'})`);
+});
+
+// Botões de restaurar dados salvos
+const btnRestoreMeta = document.getElementById('btnRestoreMeta');
+const btnIgnoreMeta = document.getElementById('btnIgnoreMeta');
+const btnRestoreTags = document.getElementById('btnRestoreTags');
+const btnIgnoreTags = document.getElementById('btnIgnoreTags');
+
+if (btnRestoreMeta) btnRestoreMeta.addEventListener('click', () => {
+  if (loadMetaFromStorage()) {
+    document.getElementById('metaRestoreBar').classList.add('hidden');
+    showToast('✓ Metadados restaurados');
+  }
+});
+if (btnIgnoreMeta) btnIgnoreMeta.addEventListener('click', () => {
+  document.getElementById('metaRestoreBar').classList.add('hidden');
+});
+if (btnRestoreTags) btnRestoreTags.addEventListener('click', () => {
+  if (loadTagsFromStorage()) {
+    buildTagList();
+    document.getElementById('tagsRestoreBar').classList.add('hidden');
+    showToast('✓ TAGs restauradas');
+  }
+});
+if (btnIgnoreTags) btnIgnoreTags.addEventListener('click', () => {
+  document.getElementById('tagsRestoreBar').classList.add('hidden');
 });
 
 $('#btnRetry').addEventListener('click', () => {
@@ -1215,17 +1357,10 @@ function persistMeta(){
   const key = state.file ? `bp_meta_${state.file.name}` : 'bp_profibus_meta';
   try { localStorage.setItem(key, JSON.stringify(state.meta)); } catch(e){}
 }
+
 function loadMeta(){
-  // Carregar meta do arquivo atual — se for arquivo novo, começa limpo
-  const key = state.file ? `bp_meta_${state.file.name}` : 'bp_profibus_meta';
-  try {
-    const s = localStorage.getItem(key);
-    if (s) {
-      const parsed = JSON.parse(s);
-      state.meta = { ...state.meta, ...parsed };
-    }
-  } catch(e){}
-  // Atualizar campos do formulário
+  // INICIALIZA o formulário com state.meta atual (que pode estar vazio após reset).
+  // NÃO carrega automaticamente do localStorage — comportamento opt-in via botão.
   Object.keys(meta_inputs).forEach(k => {
     meta_inputs[k].value = state.meta[k] || '';
   });
@@ -1236,34 +1371,41 @@ function loadMeta(){
     state.meta.data = iso;
   }
 }
+
+function loadMetaFromStorage(){
+  // Carrega manualmente do localStorage (acionado por botão)
+  if (!state.file) return false;
+  const key = `bp_meta_${state.file.name}`;
+  try {
+    const s = localStorage.getItem(key);
+    if (s) {
+      const parsed = JSON.parse(s);
+      state.meta = { ...state.meta, ...parsed };
+      Object.keys(meta_inputs).forEach(k => {
+        meta_inputs[k].value = state.meta[k] || '';
+      });
+      return true;
+    }
+  } catch(e){}
+  return false;
+}
+
+function hasMetaInStorage(){
+  if (!state.file) return false;
+  const key = `bp_meta_${state.file.name}`;
+  try { return !!localStorage.getItem(key); } catch { return false; }
+}
+
 loadMeta();
 
 /* ============================================================
    PROCESSAMENTO DO PDF
    ============================================================ */
 async function handleFile(f){
+  // RESET COMPLETO antes de carregar arquivo novo — garante zero contaminação
+  resetCompleto({ keepFileInput: true });
+
   state.file = f;
-  state.data = null;
-  state.tags = {};
-  // RESET COMPLETO — Bug fix: dados de relatório anterior não podem vazar
-  state.meta = { cliente:'', planta:'', area:'', tecnico:'', cargo:'', data:'', comentarios:'' };
-
-  // RESET VISUAL DO FORMULÁRIO — campos voltam ao estado limpo
-  if (typeof meta_inputs !== 'undefined') {
-    Object.keys(meta_inputs).forEach(k => {
-      if (meta_inputs[k]) meta_inputs[k].value = '';
-    });
-    // Re-aplicar data atual se o campo de data existe
-    if (meta_inputs.data) {
-      const today = new Date().toISOString().slice(0,10);
-      meta_inputs.data.value = today;
-      state.meta.data = today;
-    }
-  }
-
-  // RESET VISUAL DA LISTA DE TAGS
-  const tagListEl = document.getElementById('tagList');
-  if (tagListEl) tagListEl.innerHTML = '';
 
   fileNameEl.textContent = f.name;
   fileMetaEl.textContent = (f.size/1024).toFixed(1) + ' KB';
@@ -1337,6 +1479,12 @@ async function handleFile(f){
     loadMeta();
     loadTags();
     buildTagList();
+
+    // Mostrar barras de restauração se houver dados salvos para este arquivo
+    const metaBar = document.getElementById('metaRestoreBar');
+    const tagsBar2 = document.getElementById('tagsRestoreBar');
+    if (metaBar) metaBar.classList.toggle('hidden', !hasMetaInStorage());
+    if (tagsBar2) tagsBar2.classList.toggle('hidden', !hasTagsInStorage());
 
     loadingBox.classList.add('hidden');
     tabsBar.classList.remove('hidden');
@@ -2070,16 +2218,35 @@ function extractAddrValuePairs(block, target, allowDecimal){
    TAG MAPPING
    ============================================================ */
 function loadTags(){
+  // Não carrega tags automaticamente — começa sempre limpo.
+  // O usuário pode restaurar tags antigas pelo botão "Restaurar tags salvas" se quiser.
   if (!state.data) return;
-  // Tags vinculadas ao nome do arquivo + nome da rede — evita vazamento entre arquivos
+  state.tags = {};
+}
+
+function loadTagsFromStorage(){
+  if (!state.data) return false;
   const fileKey = state.file ? state.file.name : 'default';
   const netKey = state.data.network.name || 'rede';
   const key = `bp_profibus_tags_${fileKey}_${netKey}`;
   try {
     const s = localStorage.getItem(key);
-    if (s) state.tags = JSON.parse(s);
+    if (s) {
+      state.tags = JSON.parse(s);
+      return true;
+    }
   } catch{}
+  return false;
 }
+
+function hasTagsInStorage(){
+  if (!state.data) return false;
+  const fileKey = state.file ? state.file.name : 'default';
+  const netKey = state.data.network.name || 'rede';
+  const key = `bp_profibus_tags_${fileKey}_${netKey}`;
+  try { return !!localStorage.getItem(key); } catch { return false; }
+}
+
 function saveTags(){
   if (!state.data) return;
   const fileKey = state.file ? state.file.name : 'default';
