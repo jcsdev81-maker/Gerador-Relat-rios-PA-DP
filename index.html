@@ -941,8 +941,13 @@ const state = {
    TRAVAS ANTI-ERRO — Limites baseados nas normas IEC 61158 / IEC 61784
    Valores FIXOS, não inventados. Se o dado cai fora, é descartado.
    ============================================================ */
-// PA: norma IEC 61158-2 MBP — sinal em mV
-const SIGNAL_LIMITS = { good_min:500, warn_min:350, high_max:1000 };
+// PA: norma IEC 61158-2 MBP — sinal modulado em mV peak-to-peak
+// Referência: SMAR / Samson / PTO Whitepaper / Profibus Standard
+// Sinal saudável típico: 750-1000 mV pp. Ideal ~800 mV.
+// good_min 640 mV = 80% do nominal 800 mV (margem profissional)
+// warn_min 350 mV = limite de campo (abaixo disso comunicação degrada)
+// term_missing >= 1500 mV = terminador ausente (PTO Whitepaper)
+const SIGNAL_LIMITS = { good_min:640, warn_min:350, high_max:1000, term_missing_min:1500 };
 // DP: norma RS-485 — tensão diferencial AB em V
 const DP_SIGNAL_LIMITS = { good_min:4.0, warn_min:2.0, high_max:7.0 };
 // Jitter: limite por tipo de rede
@@ -982,6 +987,48 @@ function signalQuality(val){
   if (val >= lim.warn_min) return 'warn';
   return 'crit';
 }
+
+/**
+ * Detecta sinal anormalmente alto = indicador de terminador ausente.
+ * Referência: PTO Whitepaper (2005) — "voltage levels increase when terminator missing"
+ * PA: sinal > 1500 mV é fortíssimo indicador de terminador ausente
+ * DP: idle muito alto (> 1.8 V) indica terminador ausente
+ */
+function detectMissingTerminator(d) {
+  if (!d || !d.signals) return [];
+  const findings = [];
+  const isPA = d.networkType === 'PA';
+
+  if (isPA) {
+    // PA: sinal pp acima de 1500 mV = terminador ausente
+    Object.entries(d.signals).forEach(([addr, mv]) => {
+      if (mv >= SIGNAL_LIMITS.term_missing_min) {
+        findings.push({
+          addr: parseInt(addr, 10),
+          metric: 'signal',
+          value: mv,
+          unit: 'mV',
+          source: 'PTO Whitepaper 2005 — sinal PA anormalmente alto'
+        });
+      }
+    });
+  } else {
+    // DP: tensão idle acima de 1.8 V = terminador ausente em uma das pontas
+    Object.entries(d.idleVoltages || {}).forEach(([addr, v]) => {
+      if (v >= 1.8) {
+        findings.push({
+          addr: parseInt(addr, 10),
+          metric: 'idle',
+          value: v,
+          unit: 'V',
+          source: 'Norma RS-485 — idle voltage anormalmente alto'
+        });
+      }
+    });
+  }
+  return findings;
+}
+
 function jitterQuality(us){
   if (us == null) return 'unknown';
   const lim = state.data && state.data.networkType === 'PA' ? PA_JITTER_LIMITS : JITTER_LIMITS;
@@ -1646,19 +1693,42 @@ function parsePtnFile(arrayBuffer) {
   const paSignalPositions = findPattern('PA signal level\0');
   const paJitterPositions = findPattern('PA Jitter\0');
 
-  // Parse "(N) Slave" or "(N) Master" patterns
+  // Parse station labels — suporta múltiplos idiomas (Inglês/Espanhol/Português)
+  // O ProfiTrace usa idioma do sistema do usuário, então arquivos vêm em PT/ES/EN
   const stationLabels = [];
-  const labelRegex = /\((\d{1,3})\)\s*(Slave|Master|New station)/g;
+  const labelRegex = /\((\d{1,3})\)\s*(Slave|Esclavo|Escravo|Master|Maestro|Mestre|New station|Nueva estación|Nueva estacion|Nova estação|Nova estacao)/gi;
   const textView = new TextDecoder('ascii', {fatal: false}).decode(bytes);
   let lm;
   while ((lm = labelRegex.exec(textView)) !== null) {
     const addr = parseInt(lm[1], 10);
-    // TRAVA: Validar endereço antes de aceitar
     if (isValidRange(addr, 'address')) {
-      stationLabels.push({ pos: lm.index, addr, type: lm[2] });
+      // Normalizar tipo: qualquer variante de Master/Slave/NewStation vira tipo padrão
+      const rawType = lm[2].toLowerCase();
+      let type;
+      if (rawType.includes('master') || rawType.includes('maestro') || rawType.includes('mestre')) {
+        type = 'Master';
+      } else if (rawType.includes('new') || rawType.includes('nueva') || rawType.includes('nova')) {
+        type = 'New station';
+      } else {
+        type = 'Slave';
+      }
+      stationLabels.push({ pos: lm.index, addr, type });
     }
   }
   stationLabels.sort((a, b) => a.pos - b.pos);
+
+  // Deduplicar — mesmo endereço pode aparecer em PT e EN no mesmo arquivo
+  const seenAddrs = new Set();
+  const uniqueLabels = [];
+  for (const lbl of stationLabels) {
+    const key = `${lbl.addr}-${lbl.type}`;
+    if (!seenAddrs.has(key)) {
+      seenAddrs.add(key);
+      uniqueLabels.push(lbl);
+    }
+  }
+  stationLabels.length = 0;
+  stationLabels.push(...uniqueLabels);
 
   let masterCount = 0;
   let slaveCount = 0;
@@ -1668,11 +1738,19 @@ function parsePtnFile(arrayBuffer) {
     const nextPos = si + 1 < stationLabels.length ? stationLabels[si + 1].pos : bytes.length;
 
     if (st.type === 'Master') { masterCount++; continue; }
-    if (st.type === 'New station') {
-      // Registrar como dispositivo não parametrizado
-      data._confidence.warnings.push(`Endereço ${st.addr}: "New station" — dispositivo detectado mas sem parametrização`);
-      continue;
+
+    // "New station" = dispositivo NA REDE mas sem parametrização do mestre
+    // É uma ANOMALIA rastreável, não um dispositivo a ignorar
+    // Os dados de sinal/jitter desse dispositivo SÃO válidos e devem ser extraídos
+    const isNewStation = st.type === 'New station';
+    if (isNewStation) {
+      data._confidence.warnings.push(`Endereço ${st.addr}: detectado mas SEM parametrização do mestre — verificar configuração`);
+      // Adicionar à lista de anomalias para o relatório
+      if (!data.paramSlaves.includes(st.addr)) {
+        data.paramSlaves.push(st.addr);
+      }
     }
+
     slaveCount++;
     data._confidence.stationsFound++;
 
@@ -2387,7 +2465,46 @@ function classifyDevice(dev, sig, sigQ, idle, idleQ, jit, jitQ, d) {
     });
   }
 
-  if (issues.length === 0) return { category: DIAG_CATEGORY.OK, issues: [] };
+  // ============================================================
+  // SCORE INDIVIDUAL 0-100 (Sprint 1)
+  // Cálculo baseado em normas IEC 61158/61784 — quanto mais desvios, menor score
+  // Calibrado contra cenários reais: rede saudável ≥85, rede com erro <60
+  // ============================================================
+  let score = 100;
+  // Sinal: penalização escalonada por gravidade do desvio
+  if (sigQ === 'crit') {
+    score -= 40;
+    // Desvio severo: sinal muito abaixo do mínimo aumenta penalização
+    if (sig != null) {
+      const lim = signalLimits();
+      if (lim.warn_min && sig < lim.warn_min * 0.7) score -= 15; // 30% abaixo do mínimo = severo
+      if (lim.warn_min && sig < lim.warn_min * 0.5) score -= 10; // 50% abaixo = catastrófico
+    }
+  } else if (sigQ === 'warn') {
+    score -= 18;
+  }
+
+  if (idle != null) {
+    if (idleQ === 'crit') score -= 25;
+    else if (idleQ === 'warn') score -= 12;
+  }
+
+  if (jit != null) {
+    if (jitQ === 'crit') score -= 25;
+    else if (jitQ === 'warn') score -= 12;
+  }
+
+  if (dev.retryCount > 0) score -= Math.min(15, dev.retryCount * 3);
+  if (dev.diagDx > 0) score -= Math.min(20, dev.diagDx * 5);
+  if (dev.timesLost > 0) score -= Math.min(40, dev.timesLost * 25);
+  if (d.paramSlaves && d.paramSlaves.includes(dev.addr)) score -= 10;
+
+  // Sem dados de sinal = score inconclusivo, máximo 70
+  if (sig == null && jit == null) score = Math.min(score, 70);
+
+  score = Math.max(0, Math.min(100, score));
+
+  if (issues.length === 0) return { category: DIAG_CATEGORY.OK, issues: [], score };
 
   const cats = issues.map(i => i.cat);
   const hasFisica = cats.includes('FISICA');
@@ -2403,7 +2520,7 @@ function classifyDevice(dev, sig, sigQ, idle, idleQ, jit, jitQ, d) {
     finalCat = DIAG_CATEGORY.AUTOMACAO;
   }
 
-  return { category: finalCat, issues };
+  return { category: finalCat, issues, score };
 }
 
 /* ============================================================
@@ -2467,7 +2584,9 @@ function renderReport(){
   const devicePagesNum = Math.ceil(sortedAddrs.length / devicesPerPage) || 0;
   // Pré-calcular se a página 6 (gráficos jitter/idle) terá conteúdo
   const _hasPage6 = jitEntries.length > 0 || (!isPA && idleEntriesAll.length > 0);
-  const totalPages = 1 + 5 + (_hasPage6 ? 1 : 0) + devicePagesNum + 1 + 1; // exec + páginas 1-5 + page6 condicional + devices + recom + glossário
+  // Pré-calcular páginas da tabela resumo (30 linhas por página)
+  const _summaryPagesNum = sortedAddrs.length > 0 ? Math.ceil(sortedAddrs.length / 30) : 0;
+  const totalPages = 1 + 5 + (_hasPage6 ? 1 : 0) + _summaryPagesNum + devicePagesNum + 1 + 1; // exec + páginas 1-5 + page6 cond + tabela resumo + devices + recom + glossário
 
   function pageWrap(content){
     pageNum++;
@@ -2860,6 +2979,100 @@ function renderReport(){
   }
 
   // ==================================================
+  // TABELA RESUMO EXECUTIVA (Sprint 1.2)
+  // Uma linha por dispositivo, ordenado por SCORE (pior primeiro)
+  // Adapta colunas conforme PA/DP
+  // Quebra a cada 30 linhas para não estourar página
+  // ==================================================
+  const summaryRows = sortedAddrs.map(a => {
+    const dev = d.devices.find(x => x.addr === a) || {addr: a};
+    const cls = classifications[a] || {};
+    const sigVal = d.signals[a];
+    const idleVal = (d.idleVoltages || {})[a];
+    const jitVal = d.jitters[a];
+    const isMaster = (dev.deviceType||'').toLowerCase().includes('master');
+    return {
+      addr: a,
+      tag: tags[a] || '',
+      sig: sigVal,
+      idle: idleVal,
+      jit: jitVal,
+      score: typeof cls.score === 'number' ? cls.score : 100,
+      category: cls.category || DIAG_CATEGORY.OK,
+      isNewStation: d.paramSlaves && d.paramSlaves.includes(a),
+      isMaster
+    };
+  }).sort((a, b) => {
+    // Master primeiro, depois pior score primeiro
+    if (a.isMaster && !b.isMaster) return -1;
+    if (!a.isMaster && b.isMaster) return 1;
+    return a.score - b.score;
+  });
+
+  function scoreColor(s) {
+    if (s >= 85) return { bg: '#d4edda', fg: '#155724' };
+    if (s >= 60) return { bg: '#fff3cd', fg: '#856404' };
+    return { bg: '#f8d7da', fg: '#721c24' };
+  }
+
+  const summaryHeader = isPA
+    ? `<tr><th>End.</th><th>TAG</th><th>Sinal (mV)</th><th>Jitter (µs)</th><th>Score</th><th>Status</th></tr>`
+    : `<tr><th>End.</th><th>TAG</th><th>AB Diff (V)</th><th>Idle (V)</th><th>Jitter (µs)</th><th>Score</th><th>Status</th></tr>`;
+
+  const summaryRowsHtml = summaryRows.map(r => {
+    const sc = scoreColor(r.score);
+    const statusBadge = r.isNewStation
+      ? `<span style="color:#856404">⚠ Sem param.</span>`
+      : `<span style="color:${r.category.color || '#666'}">${r.category.icon || ''} ${r.category.label || '—'}</span>`;
+    const sigCell = r.sig != null ? `${r.sig}` : '—';
+    const idleCell = r.idle != null ? `${r.idle}` : '—';
+    const jitCell = r.jit != null ? `${r.jit}` : '—';
+    if (isPA) {
+      return `<tr>
+        <td class="num"><b>${r.addr}</b></td>
+        <td>${esc(r.tag) || '—'}</td>
+        <td class="num">${sigCell}</td>
+        <td class="num">${jitCell}</td>
+        <td class="num"><span style="background:${sc.bg};color:${sc.fg};padding:1pt 6pt;border-radius:6pt;font-weight:bold">${r.score}</span></td>
+        <td>${statusBadge}</td>
+      </tr>`;
+    }
+    return `<tr>
+      <td class="num"><b>${r.addr}</b></td>
+      <td>${esc(r.tag) || '—'}</td>
+      <td class="num">${sigCell}</td>
+      <td class="num">${idleCell}</td>
+      <td class="num">${jitCell}</td>
+      <td class="num"><span style="background:${sc.bg};color:${sc.fg};padding:1pt 6pt;border-radius:6pt;font-weight:bold">${r.score}</span></td>
+      <td>${statusBadge}</td>
+    </tr>`;
+  });
+
+  // Quebrar em páginas de até 30 linhas
+  const ROWS_PER_PAGE = 30;
+  const summaryPages = [];
+  for (let i = 0; i < summaryRowsHtml.length; i += ROWS_PER_PAGE) {
+    const slice = summaryRowsHtml.slice(i, i + ROWS_PER_PAGE);
+    const isFirst = i === 0;
+    const continuation = !isFirst ? ' (continuação)' : '';
+    summaryPages.push(pageWrap(`
+      <div class="pt-section">
+        ${isFirst ? `
+          <h2>9.5 Tabela resumo por dispositivo</h2>
+          <p style="font-size:9pt;color:#555;margin-bottom:8px">
+            Ordenado por <b>score</b> (pior primeiro). Score combina sinal, idle, jitter, retries e diagnósticos.
+            <br>Verde ≥85 · Amarelo 60-84 · Vermelho &lt;60.
+          </p>
+        ` : `<h2>9.5 Tabela resumo por dispositivo${continuation}</h2>`}
+        <table class="pt-table" style="font-size:9pt">
+          <thead>${summaryHeader}</thead>
+          <tbody>${slice.join('')}</tbody>
+        </table>
+      </div>
+    `));
+  }
+
+  // ==================================================
   // PÁGINAS 7+: Seção 10 — Device details (4 devices por página)
   // ==================================================
   const devicePages = [];
@@ -2971,7 +3184,7 @@ function renderReport(){
           <tr><td><b>Acoplador DP/PA</b></td><td>Dispositivo que converte PROFIBUS DP (RS-485) em PROFIBUS PA (MBP). Pode ser transparente (gateway) ou link (com endereço próprio).</td></tr>
           <tr><td><b>Segment Coupler</b></td><td>Acoplador que alimenta o segmento PA e isola galvanicamente da rede DP. Limitado em corrente (tipicamente 100–500 mA).</td></tr>
           <tr><td><b>FISCO / FNICO</b></td><td>Modelos de segurança intrínseca para áreas classificadas. FISCO (Ex ia) limita energia. FNICO (Ex nA) é menos restritivo.</td></tr>
-          <tr><td><b>PA signal level</b></td><td>Amplitude do sinal Manchester medida pelo ProfiCore, em mV pico-a-pico. Faixa OK: ≥ 500 mV. Crítico: < 350 mV.</td></tr>
+          <tr><td><b>PA signal level</b></td><td>Amplitude do sinal Manchester medida pelo ProfiCore, em mV pico-a-pico. <b>Ideal:</b> 750-1000 mV (norma IEC 61158-2). <b>OK:</b> ≥ ${SIGNAL_LIMITS.good_min} mV. <b>Atenção:</b> ${SIGNAL_LIMITS.warn_min}-${SIGNAL_LIMITS.good_min} mV. <b>Crítico:</b> < ${SIGNAL_LIMITS.warn_min} mV. <b>Terminador ausente:</b> > ${SIGNAL_LIMITS.term_missing_min} mV.</td></tr>
           <tr><td><b>DC Voltage</b></td><td>Tensão contínua do barramento PA — alimentação do segmento. Tipicamente 9–32 V DC fornecida pelo Power Conditioner.</td></tr>
           ` : ''}
         </tbody>
@@ -2991,7 +3204,7 @@ function renderReport(){
     </div>
   `);
 
-  let html = pageExec + page1 + page2 + page3 + page4 + page5 + page6 + devicePages.join('') + finalPage + glossaryPage;
+  let html = pageExec + page1 + page2 + page3 + page4 + page5 + page6 + summaryPages.join('') + devicePages.join('') + finalPage + glossaryPage;
   reportDoc.innerHTML = html;
 }
 
@@ -3124,7 +3337,10 @@ function renderDeviceBlock(addr, d, tags, classifications){
           <span class="h-addr">Endereço: ${addr}</span>
           ${tag ? `<span class="h-tag">TAG: ${esc(tag)}</span>` : ''}
         </div>
-        <span class="h-pill ${pillKind}">${pillTxt}</span>
+        <div style="display:flex;align-items:center;gap:8px">
+          ${cls && typeof cls.score === 'number' ? `<span class="h-score" style="font-size:8pt;font-weight:bold;padding:2pt 8pt;border-radius:10pt;background:${cls.score >= 85 ? '#d4edda' : cls.score >= 60 ? '#fff3cd' : '#f8d7da'};color:${cls.score >= 85 ? '#155724' : cls.score >= 60 ? '#856404' : '#721c24'}">Score: ${cls.score}/100</span>` : ''}
+          <span class="h-pill ${pillKind}">${pillTxt}</span>
+        </div>
       </div>
       <div class="pt-device-fields">
         <div class="lbl">Nome do dispositivo:</div><div class="val">${esc(dev.deviceName || (isMaster?'Mestre':'Escravo'))}</div>
@@ -3302,6 +3518,25 @@ function generateRecommendations(d, tags, sigEntries, jitEntries){
   const t = a => tags[a] ? `<strong>${esc(tags[a])}</strong> (end. ${a})` : `equipamento no endereço <strong>${a}</strong>`;
   const idleEntries = Object.entries(d.idleVoltages || {}).map(([a,v]) => ({addr:parseInt(a,10), v, q:idleQuality(v)}));
 
+  // ============================================================
+  // DETECÇÃO DE TERMINADOR AUSENTE (correção da auditoria)
+  // Referência: PTO Whitepaper 2005, IEC 61158-2
+  // ============================================================
+  const terminatorIssues = detectMissingTerminator(d);
+  if (terminatorIssues.length > 0) {
+    const isPA = d.networkType === 'PA';
+    const addrList = terminatorIssues.map(i => t(i.addr)).join(', ');
+    const valuesList = terminatorIssues.map(i => `${i.value} ${i.unit}`).join(', ');
+    recs.push(`<strong>⚠ TERMINADOR PROVAVELMENTE AUSENTE</strong> — Sinal anormalmente alto detectado em: ${addrList}. Valores medidos: ${valuesList}.
+      <br><em>Diagnóstico:</em> ${isPA
+        ? 'Sinal PA acima de 1500 mV pp indica que pelo menos um terminador do segmento está faltando ou desconectado. PROFIBUS PA usa terminação passiva (capacitor + resistor em série) nas duas extremidades do trunk.'
+        : 'Tensão idle acima de 1.8 V indica que pelo menos um terminador (220Ω + 390Ω + 5V) está ausente em uma das pontas do segmento.'}
+      <br><em>Procedimento:</em> ${isPA
+        ? '(1) Inspecionar visualmente os terminadores nas duas extremidades do segmento PA; (2) Conferir se o terminal block do acoplador DP/PA tem terminação ativa habilitada; (3) Medir resistência entre PA+ e PA- com a rede desligada — deve ser ~50Ω com 2 terminadores, ~100Ω com 1, infinita sem terminadores.'
+        : '(1) Verificar fisicamente os terminadores em ambas as pontas do segmento DP; (2) Conferir se conectores DB9 das pontas têm chave de terminação em "ON"; (3) Conferir alimentação 5V dos terminadores no DB9.'}
+      <br><em>Fonte:</em> ${terminatorIssues[0].source}`);
+  }
+
   // TRAVA: Só gera recomendações baseadas em dados REAIS encontrados no arquivo
   sigEntries.filter(s => s.q === 'crit' && s.v < signalLimits().warn_min).forEach(s => {
     const sigLabel = d.networkType === 'PA' ? 'SINAL PA BAIXO' : 'TENSÃO BAIXA';
@@ -3467,8 +3702,107 @@ $('#btnPdf').addEventListener('click', () => {
   $$('.tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === 'report'));
   $$('.tab-content').forEach(el => el.classList.toggle('hidden', el.id !== 'tab-report'));
   renderReport();
-  showToast('Preparando PDF — use "Salvar como PDF" na janela de impressão');
-  setTimeout(() => window.print(), 400);
+
+  // Detectar mobile (Android, iOS)
+  const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+  const isAndroid = /Android/i.test(navigator.userAgent);
+
+  if (isMobile) {
+    // No mobile, abrir o relatório em nova aba — usuário usa "Imprimir → Salvar como PDF" do navegador
+    setTimeout(() => {
+      try {
+        const reportEl = document.getElementById('reportDoc');
+        if (!reportEl) {
+          showToast('Erro: relatório não está pronto. Aguarde alguns segundos.', true);
+          return;
+        }
+
+        // Coletar todos os estilos da página
+        let styles = '';
+        for (const sheet of document.styleSheets) {
+          try {
+            for (const rule of sheet.cssRules) {
+              styles += rule.cssText + '\n';
+            }
+          } catch(e) { /* CORS */ }
+        }
+
+        const reportHtml = reportEl.outerHTML;
+        const fname = (state.meta.cliente || 'relatorio').replace(/[^a-z0-9_-]/gi,'_') + '_profibus_' + (state.meta.data || new Date().toISOString().slice(0,10));
+
+        const fullHtml = `<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>${fname}</title>
+<style>${styles}
+@media screen {
+  body { background: #f0f0f0; padding: 0; margin: 0; }
+  .pt-doc { max-width: 210mm; margin: 0 auto; background: white; }
+  .pt-page { box-shadow: 0 2px 8px rgba(0,0,0,0.15); margin: 8px auto; }
+  .mobile-hint {
+    position: sticky; top: 0; z-index: 100;
+    background: #006f51; color: white; padding: 12px 16px;
+    text-align: center; font-family: system-ui, sans-serif; font-size: 13px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+  }
+  .mobile-hint button {
+    margin-left: 10px; padding: 6px 14px; border: none;
+    background: #ffd400; color: #1a1a1a; border-radius: 4px;
+    font-weight: bold; cursor: pointer; font-size: 13px;
+  }
+}
+@media print {
+  .mobile-hint { display: none !important; }
+  body { background: white; padding: 0; margin: 0; }
+  .pt-page { box-shadow: none !important; margin: 0 !important; page-break-after: always; }
+}
+</style>
+</head>
+<body>
+<div class="mobile-hint">
+  📄 Toque em <b>Imprimir</b> e selecione <b>"Salvar como PDF"</b>
+  <button onclick="window.print()">Imprimir agora</button>
+</div>
+${reportHtml}
+<script>
+  // Auto-trigger após 1.5s para dar tempo da página carregar
+  setTimeout(() => { try { window.print(); } catch(e) {} }, 1500);
+<\/script>
+</body>
+</html>`;
+
+        // Criar Blob e abrir em nova aba
+        const blob = new Blob([fullHtml], { type: 'text/html' });
+        const url = URL.createObjectURL(blob);
+        const newWin = window.open(url, '_blank');
+
+        if (!newWin) {
+          // Popup bloqueado — fallback: download direto
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = fname + '.html';
+          a.click();
+          showToast('Relatório salvo como HTML. Abra-o e use Imprimir → Salvar como PDF.');
+        } else {
+          showToast(isAndroid
+            ? '✓ Relatório aberto. Use o menu (⋮) → Compartilhar → Imprimir → Salvar como PDF'
+            : '✓ Relatório aberto. Use Compartilhar → Imprimir → Salvar como PDF');
+        }
+
+        // Limpar URL após 60s
+        setTimeout(() => URL.revokeObjectURL(url), 60000);
+      } catch (e) {
+        console.error(e);
+        showToast('Erro ao gerar PDF: ' + e.message, true);
+      }
+    }, 600);
+  } else {
+    // Desktop: usa window.print() normal
+    showToast('Preparando PDF — use "Salvar como PDF" na janela de impressão');
+    setTimeout(() => window.print(), 400);
+  }
 });
 
 $('#btnWord').addEventListener('click', () => {
