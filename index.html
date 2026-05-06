@@ -627,6 +627,44 @@ body{
   border-radius:10px;margin-left:8px;
 }
 
+/* ====================== NETWORK MODE BADGE ====================== */
+.network-mode-badge{
+  display:inline-flex;align-items:center;gap:6px;
+  font-family:var(--font-mono);font-size:11px;font-weight:700;
+  text-transform:uppercase;letter-spacing:0.1em;
+  padding:5px 12px;border-radius:20px;
+  border:1.5px solid rgba(255,255,255,0.35);
+  transition:all 0.3s;
+}
+.network-mode-badge.mode-pa{
+  background:rgba(30,80,200,0.25);color:#b8d4ff;border-color:rgba(100,160,255,0.4);
+}
+.network-mode-badge.mode-dp{
+  background:rgba(255,255,255,0.12);color:#c8ffd4;border-color:rgba(150,255,180,0.35);
+}
+.network-mode-badge .mode-dot{
+  width:7px;height:7px;border-radius:50%;
+}
+.network-mode-badge.mode-pa .mode-dot{ background:#6ab0ff;box-shadow:0 0 7px #6ab0ff; }
+.network-mode-badge.mode-dp .mode-dot{ background:#6bff9e;box-shadow:0 0 7px #6bff9e; }
+
+/* ====================== MODE SELECTOR (dropzone) ====================== */
+.mode-selector{
+  display:flex;gap:6px;justify-content:center;margin-top:18px;
+}
+.mode-btn{
+  font-family:var(--font-mono);font-size:11px;font-weight:600;
+  padding:6px 16px;border-radius:20px;cursor:pointer;
+  border:1.5px solid var(--border-2);
+  background:var(--surface);color:var(--text-2);
+  text-transform:uppercase;letter-spacing:0.07em;
+  transition:all 0.15s;
+}
+.mode-btn:hover{border-color:var(--bp-green);color:var(--bp-green-dark)}
+.mode-btn.active-pa{background:#e8f0ff;color:#1a4db5;border-color:#6ab0ff}
+.mode-btn.active-dp{background:#e6f9ee;color:#1a6e30;border-color:#6bcc8e}
+.mode-btn.active-auto{background:var(--bp-green);color:#fff;border-color:var(--bp-green)}
+
 /* ====================== TAG SEARCH ====================== */
 .tag-search{
   margin-bottom:14px;position:relative;
@@ -764,9 +802,12 @@ body{
       <p>Análise de rede &middot; Relatório técnico</p>
     </div>
   </div>
-  <div class="header-status">
-    <span id="statusLed" class="status-led"></span>
-    <span id="statusText">Pronto</span>
+  <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+    <span id="networkModeBadge" class="network-mode-badge hidden"></span>
+    <div class="header-status">
+      <span id="statusLed" class="status-led"></span>
+      <span id="statusText">Pronto</span>
+    </div>
   </div>
 </header>
 
@@ -781,12 +822,17 @@ body{
     <h2>Envie o arquivo do ProfiTrace</h2>
     <p>Arraste o PDF, .ptn ou .ptd aqui, ou clique para selecionar</p>
     <span class="dropzone-hint">PDF · PTN · gerado pelo ProfiTrace</span>
+    <div class="mode-selector">
+      <button class="mode-btn active-auto" id="modeAuto" title="Detecta PA ou DP automaticamente pelo arquivo">⚡ Auto</button>
+      <button class="mode-btn" id="modePA" title="Forçar modo Profibus PA (31.25 kbps, sinal em mV)">📡 PA</button>
+      <button class="mode-btn" id="modeDP" title="Forçar modo Profibus DP (RS-485, tensão AB Diff em V)">🔌 DP</button>
+    </div>
   </section>
 
   <section id="workspace" class="workspace hidden">
     <div class="file-bar">
       <div class="file-info">
-        <span class="file-pdf-tag">PDF</span>
+        <span class="file-pdf-tag" id="filePdfTag">PDF</span>
         <div>
           <strong id="fileName">arquivo.pdf</strong>
           <span class="meta" id="fileMeta">— KB</span>
@@ -914,7 +960,7 @@ body{
 </main>
 
 <footer class="app-footer">
-  BIO·PROFIBUS v2.1 · Suporte DP + PA · Classificação automática (Beta) · Travas anti-erro ativas · Os dados são processados localmente no seu navegador
+  BIO·PROFIBUS v2.2 · Modo PA e DP distintos · Dashboard adaptativo · Classificação automática (Beta) · Dados processados localmente
 </footer>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
@@ -930,6 +976,7 @@ const state = {
   file: null,
   data: null,
   tags: {},
+  forcedMode: 'auto', // 'auto' | 'PA' | 'DP'
   meta: {
     cliente:'', planta:'', area:'',
     tecnico:'', cargo:'', data:'',
@@ -1084,8 +1131,44 @@ function setStatus(kind, txt){
 }
 
 /* ============================================================
-   DROPZONE
+   MODE SELECTOR — Manual PA/DP/Auto override
    ============================================================ */
+const modeButtons = { auto: $('#modeAuto'), pa: $('#modePA'), dp: $('#modeDP') };
+
+function setForcedMode(mode) {
+  state.forcedMode = mode;
+  Object.values(modeButtons).forEach(b => b && b.classList.remove('active-auto','active-pa','active-dp'));
+  if (mode === 'auto' && modeButtons.auto) modeButtons.auto.classList.add('active-auto');
+  if (mode === 'PA' && modeButtons.pa)   modeButtons.pa.classList.add('active-pa');
+  if (mode === 'DP' && modeButtons.dp)   modeButtons.dp.classList.add('active-dp');
+}
+
+if (modeButtons.auto) modeButtons.auto.addEventListener('click', () => setForcedMode('auto'));
+if (modeButtons.pa)   modeButtons.pa.addEventListener('click',   () => setForcedMode('PA'));
+if (modeButtons.dp)   modeButtons.dp.addEventListener('click',   () => setForcedMode('DP'));
+
+function applyForcedMode(data) {
+  if (state.forcedMode !== 'auto') {
+    data.networkType = state.forcedMode;
+  }
+}
+
+function updateNetworkModeBadge(type) {
+  const badge = document.getElementById('networkModeBadge');
+  const fileTag = document.getElementById('filePdfTag');
+  if (!badge) return;
+  if (!type) { badge.classList.add('hidden'); return; }
+  badge.classList.remove('hidden','mode-pa','mode-dp');
+  badge.classList.add(type === 'PA' ? 'mode-pa' : 'mode-dp');
+  badge.innerHTML = `<span class="mode-dot"></span>Profibus ${type}`;
+  if (fileTag) {
+    const ext = (state.file?.name || 'PDF').split('.').pop().toUpperCase();
+    fileTag.textContent = `${ext} · ${type}`;
+    fileTag.style.background = type === 'PA' ? '#1a4db5' : 'var(--bp-green)';
+  }
+}
+
+
 dropzone.addEventListener('click', () => fileInput.click());
 dropzone.addEventListener('dragover', e => { e.preventDefault(); dropzone.classList.add('over'); });
 dropzone.addEventListener('dragleave', () => dropzone.classList.remove('over'));
@@ -1166,6 +1249,12 @@ function resetCompleto(opts = {}) {
 
   // 8. Status
   setStatus('', 'Pronto');
+
+  // 9. Reset mode badge
+  const badge = document.getElementById('networkModeBadge');
+  if (badge) badge.classList.add('hidden');
+  const fileTagEl = document.getElementById('filePdfTag');
+  if (fileTagEl) { fileTagEl.textContent = 'PDF'; fileTagEl.style.background = ''; }
 }
 
 /* ============================================================
@@ -1348,16 +1437,49 @@ function renderDashboard(){
   // Network name
   document.getElementById('dashNetworkName').textContent = d.network.name || 'Rede sem nome';
 
-  // KPIs
+  // KPIs — adaptados por tipo de rede
   const kpisEl = document.getElementById('dashKpis');
-  const kpis = [
-    { val: d.network.slaves, lbl: 'Escravos', cls: 'ok' },
-    { val: d.network.masters, lbl: 'Mestres', cls: 'ok' },
-    { val: d.networkType || 'DP', lbl: 'Tipo de rede', cls: 'ok' },
-    { val: critSignals + critJitter + critIdle, lbl: 'Críticos', cls: (critSignals + critJitter + critIdle) > 0 ? 'crit' : 'ok' },
-    { val: warnSignals + warnJitter + warnIdle, lbl: 'Alertas', cls: (warnSignals + warnJitter + warnIdle) > 0 ? 'warn' : 'ok' },
-    { val: totalLost, lbl: 'Perdidos', cls: totalLost > 0 ? 'crit' : 'ok' },
-  ];
+  const isPA = d.networkType === 'PA';
+
+  let kpis;
+  if (isPA) {
+    // PA KPIs: sinal médio, jitter médio, tipo, críticos, alertas, diagnósticos
+    const avgSig = sigEntries.length > 0
+      ? Math.round(sigEntries.reduce((s,x) => s + x.v, 0) / sigEntries.length)
+      : null;
+    const avgJit = jitEntries.length > 0
+      ? (jitEntries.reduce((s,x) => s + x.v, 0) / jitEntries.length).toFixed(2)
+      : null;
+    const sigCls = avgSig == null ? 'ok' : signalQuality(avgSig);
+    const jitCls = avgJit == null ? 'ok' : jitterQuality(parseFloat(avgJit));
+    kpis = [
+      { val: d.network.slaves, lbl: 'Escravos', cls: 'ok' },
+      { val: avgSig != null ? avgSig + ' mV' : '—', lbl: 'Sinal médio PA', cls: sigCls },
+      { val: avgJit != null ? avgJit + ' µs' : '—', lbl: 'Jitter médio', cls: jitCls },
+      { val: critSignals + critJitter, lbl: 'Críticos', cls: (critSignals + critJitter) > 0 ? 'crit' : 'ok' },
+      { val: warnSignals + warnJitter, lbl: 'Alertas', cls: (warnSignals + warnJitter) > 0 ? 'warn' : 'ok' },
+      { val: d.devices.reduce((s,x) => s + (x.diagDx||0), 0), lbl: 'Diag. DX', cls: totalDiag > 0 ? 'warn' : 'ok' },
+    ];
+  } else {
+    // DP KPIs: escravos, tensão média, idle médio, críticos, alertas, perdidos
+    const avgSig = sigEntries.length > 0
+      ? (sigEntries.reduce((s,x) => s + x.v, 0) / sigEntries.length).toFixed(2)
+      : null;
+    const avgIdle = idleEntries.length > 0
+      ? (idleEntries.reduce((s,x) => s + x.v, 0) / idleEntries.length).toFixed(2)
+      : null;
+    const sigCls = avgSig == null ? 'ok' : signalQuality(parseFloat(avgSig));
+    const idleCls = avgIdle == null ? 'ok' : idleQuality(parseFloat(avgIdle));
+    kpis = [
+      { val: d.network.slaves, lbl: 'Escravos', cls: 'ok' },
+      { val: avgSig != null ? avgSig + ' V' : '—', lbl: 'AB Diff médio', cls: sigCls },
+      { val: avgIdle != null ? avgIdle + ' V' : '—', lbl: 'Idle médio', cls: idleCls },
+      { val: critSignals + critJitter + critIdle, lbl: 'Críticos', cls: (critSignals + critJitter + critIdle) > 0 ? 'crit' : 'ok' },
+      { val: warnSignals + warnJitter + warnIdle, lbl: 'Alertas', cls: (warnSignals + warnJitter + warnIdle) > 0 ? 'warn' : 'ok' },
+      { val: totalLost, lbl: 'Perdidos', cls: totalLost > 0 ? 'crit' : 'ok' },
+    ];
+  }
+
   kpisEl.innerHTML = kpis.map(k => `
     <div class="dash-kpi ${k.cls}">
       <div class="kpi-val">${k.val}</div>
@@ -1365,21 +1487,61 @@ function renderDashboard(){
     </div>
   `).join('');
 
-  // Alerts
+  // Alerts — adaptados por tipo de rede
   const alertsEl = document.getElementById('dashAlerts');
   const alerts = [];
 
-  if (critSignals > 0) alerts.push({cls:'crit', icon:'⚠', msg:`${critSignals} dispositivo(s) com ${d.networkType === 'PA' ? 'nível de sinal PA' : 'tensão AB Diff'} crítico(a)`});
-  if (critJitter > 0) alerts.push({cls:'crit', icon:'⚠', msg:`${critJitter} dispositivo(s) com jitter acima do limite (>${jitterLimits().warn_max} µs)`});
-  if (critIdle > 0) alerts.push({cls:'crit', icon:'⚠', msg:`${critIdle} dispositivo(s) com tensão idle fora da faixa (ideal: ${DP_IDLE_LIMITS.good_min}–${DP_IDLE_LIMITS.good_max} V)`});
-  if (totalLost > 0) alerts.push({cls:'crit', icon:'⚠', msg:`${totalLost} perda(s) de comunicação registrada(s) — verificar cabeamento e alimentação`});
-  if (d.illegalDevices.length > 0) alerts.push({cls:'crit', icon:'⚠', msg:`Dispositivos com respostas ilegais: endereço(s) ${d.illegalDevices.join(', ')}`});
-  if (warnSignals > 0) alerts.push({cls:'warn', icon:'⚡', msg:`${warnSignals} dispositivo(s) com ${d.networkType === 'PA' ? 'sinal PA' : 'tensão AB Diff'} na faixa de atenção`});
-  if (warnIdle > 0) alerts.push({cls:'warn', icon:'⚡', msg:`${warnIdle} dispositivo(s) com tensão idle marginalmente fora da faixa`});
-  if (totalRetries > 0) alerts.push({cls:'warn', icon:'⚡', msg:`${totalRetries} retentativa(s) registrada(s) — possível degradação do meio físico`});
-  if (totalDiag > 0) alerts.push({cls:'warn', icon:'⚡', msg:`${totalDiag} diagnóstico(s) gerados durante data exchange`});
+  if (isPA) {
+    // --- Alertas específicos de PA ---
 
-  if (alerts.length === 0) alerts.push({cls:'ok', icon:'✓', msg:'Nenhum problema detectado. Rede operando normalmente.'});
+    // 1. Verificar terminação ativa extra (sinal muito alto > 1500 mV)
+    const missingTerm = detectMissingTerminator(d);
+    if (missingTerm.length > 0) {
+      alerts.push({cls:'crit', icon:'⚠', msg:`Terminação ativa extra detectada! End. ${missingTerm.map(x=>x.addr).join(', ')} — sinal anormalmente alto (>${SIGNAL_LIMITS.term_missing_min} mV). Verificar quantas terminações ativas estão no segmento.`});
+    }
+
+    // 2. Sinal baixo (possível problema de aterramento ou resistência do cabo)
+    if (critSignals > 0) alerts.push({cls:'crit', icon:'⚠', msg:`${critSignals} dispositivo(s) com sinal PA crítico (<${SIGNAL_LIMITS.warn_min} mV) — verificar resistência do segmento e alimentação.`});
+
+    // 3. Jitter alto — indica aterramento deficiente ou interferência EMI
+    if (critJitter > 0) alerts.push({cls:'crit', icon:'⚠', msg:`${critJitter} dispositivo(s) com jitter PA crítico (>${PA_JITTER_LIMITS.warn_max} µs) — provável falta de aterramento da malha ou interferência EMI.`});
+
+    // 4. Diagnósticos em DX — em PA pode indicar problema no instrumento de campo
+    if (totalDiag > 0) alerts.push({cls:'warn', icon:'⚡', msg:`${totalDiag} diagnóstico(s) durante data exchange — verificar estado dos instrumentos de campo (end.: ${d.diagSlaves.join(', ') || '—'}).`});
+
+    // 5. Sinal abaixo do recomendado (warn)
+    if (warnSignals > 0) alerts.push({cls:'warn', icon:'⚡', msg:`${warnSignals} dispositivo(s) com sinal PA na faixa de atenção (${SIGNAL_LIMITS.warn_min}–${SIGNAL_LIMITS.good_min} mV) — monitorar.`});
+
+    // 6. Jitter elevado (warn)
+    if (warnJitter > 0) alerts.push({cls:'warn', icon:'⚡', msg:`${warnJitter} dispositivo(s) com jitter PA na faixa de atenção — verificar aterramento da malha do cabo.`});
+
+    // 7. Dispositivos com resposta ilegal
+    if (d.illegalDevices && d.illegalDevices.length > 0) alerts.push({cls:'crit', icon:'⚠', msg:`Respostas ilegais: end. ${d.illegalDevices.join(', ')} — possível conflito de endereço ou dispositivo com falha.`});
+
+    // 8. Parâmetros reenviados — indica reset ou instabilidade do slave
+    if (d.paramSlaves && d.paramSlaves.length > 0) alerts.push({cls:'warn', icon:'⚡', msg:`Parâmetros reenviados para end. ${d.paramSlaves.join(', ')} — dispositivo(s) pode(m) ter sido reinicializado(s).`});
+
+    // 9. Ciclo muito lento
+    const cycleMax = parseFloat((d.network.cycleMax||'').replace(/[^0-9.]/g,''));
+    if (!isNaN(cycleMax) && cycleMax > 1000) {
+      alerts.push({cls:'warn', icon:'⚡', msg:`Tempo de ciclo máximo alto (${d.network.cycleMax}) — pode indicar escravo com problema de resposta ou rede sobrecarregada.`});
+    }
+  } else {
+    // --- Alertas específicos de DP ---
+    if (critSignals > 0) alerts.push({cls:'crit', icon:'⚠', msg:`${critSignals} dispositivo(s) com tensão AB Diff crítica (<${DP_SIGNAL_LIMITS.warn_min} V)`});
+    if (critJitter > 0) alerts.push({cls:'crit', icon:'⚠', msg:`${critJitter} dispositivo(s) com jitter acima do limite (>${JITTER_LIMITS.warn_max} µs)`});
+    if (critIdle > 0) alerts.push({cls:'crit', icon:'⚠', msg:`${critIdle} dispositivo(s) com tensão idle fora da faixa (ideal: ${DP_IDLE_LIMITS.good_min}–${DP_IDLE_LIMITS.good_max} V)`});
+    if (totalLost > 0) alerts.push({cls:'crit', icon:'⚠', msg:`${totalLost} perda(s) de comunicação — verificar cabeamento e alimentação`});
+    if (d.illegalDevices.length > 0) alerts.push({cls:'crit', icon:'⚠', msg:`Respostas ilegais: end. ${d.illegalDevices.join(', ')}`});
+    const missingTerm = detectMissingTerminator(d);
+    if (missingTerm.length > 0) alerts.push({cls:'crit', icon:'⚠', msg:`Possível terminação ausente: end. ${missingTerm.map(x=>x.addr).join(', ')} — tensão idle anormalmente alta.`});
+    if (warnSignals > 0) alerts.push({cls:'warn', icon:'⚡', msg:`${warnSignals} dispositivo(s) com AB Diff na faixa de atenção`});
+    if (warnIdle > 0) alerts.push({cls:'warn', icon:'⚡', msg:`${warnIdle} dispositivo(s) com tensão idle marginalmente fora da faixa`});
+    if (totalRetries > 0) alerts.push({cls:'warn', icon:'⚡', msg:`${totalRetries} retentativa(s) — possível degradação do meio físico`});
+    if (totalDiag > 0) alerts.push({cls:'warn', icon:'⚡', msg:`${totalDiag} diagnóstico(s) em data exchange`});
+  }
+
+  if (alerts.length === 0) alerts.push({cls:'ok', icon:'✓', msg:`Rede Profibus ${isPA?'PA':'DP'} operando normalmente. Nenhum problema detectado.`});
 
   alertsEl.innerHTML = alerts.map(a => `
     <div class="dash-alert ${a.cls}">
@@ -1474,9 +1636,9 @@ async function handleFile(f){
       throw new Error('Formato não suportado. Use PDF (.pdf), Network Manager (.ptn) ou captura (.ptd) do ProfiTrace.');
     }
 
-    // Update file tag
-    const fileTag = document.querySelector('.file-pdf-tag');
-    if (fileTag) fileTag.textContent = isPtn ? 'PTN' : isPtd ? 'PTD' : 'PDF';
+    // Update file tag (will be fully updated by updateNetworkModeBadge after parsing)
+    const fileTagEl = document.getElementById('filePdfTag');
+    if (fileTagEl) fileTagEl.textContent = isPtn ? 'PTN' : isPtd ? 'PTD' : 'PDF';
 
     const buf = await f.arrayBuffer();
     let data;
@@ -1522,6 +1684,11 @@ async function handleFile(f){
 
     state.data = data;
 
+    // Apply forced mode override if user selected PA or DP manually
+    applyForcedMode(state.data);
+
+    // Update the network mode badge in the header
+    updateNetworkModeBadge(state.data.networkType);
     // Carregar metadados específicos deste arquivo (se existirem) e atualizar o form
     loadMeta();
     loadTags();
