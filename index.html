@@ -755,20 +755,6 @@ body{
   }
   .pt-page:last-child{page-break-after:auto !important}
 
-/* Mobile: escalar páginas A4 para caber na tela sem scroll horizontal */
-@media screen and (max-width: 860px) {
-  #tab-report { overflow-x: hidden; }
-  .pt-doc { width: 100%; overflow-x: auto; padding: 0 4px; }
-  .pt-page {
-    width: 21cm !important;
-    transform-origin: top left;
-    /* escala calculada para a largura disponível: viewport / 21cm_em_px */
-    transform: scale(var(--bp-page-scale, 0.42));
-    margin-bottom: calc((29.7cm * var(--bp-page-scale, 0.42)) - 29.7cm + 8px) !important;
-  }
-}
-
-
   .pt-page-head{
     border-bottom-color:var(--bp-green) !important;
     -webkit-print-color-adjust:exact;
@@ -788,6 +774,18 @@ body{
   }
 
   @page{size:A4;margin:1.4cm 1.6cm}
+}
+
+/* Mobile: escalar páginas A4 para caber na tela sem scroll horizontal */
+@media screen and (max-width: 860px) {
+  #tab-report { overflow-x: hidden; }
+  .pt-doc { width: 100%; overflow-x: auto; padding: 0 4px; }
+  .pt-page {
+    width: 21cm !important;
+    transform-origin: top left;
+    transform: scale(var(--bp-page-scale, 0.42));
+    margin-bottom: calc((29.7cm * var(--bp-page-scale, 0.42)) - 29.7cm + 8px) !important;
+  }
 }
 </style>
 </head>
@@ -1844,7 +1842,7 @@ async function handleFile(f){
 
     // Show contamination warning if detected
     if (state.data._contamination) {
-      showContaminationWarning(state.data._contamination, state.data.networkType);
+      showContaminationWarning(state.data._contamination);
     } else {
       hideContaminationWarning();
     }
@@ -2201,7 +2199,7 @@ function parsePtnFile(arrayBuffer) {
     data.devices.push(dev);
     data.addresses.push({
       addr: st.addr,
-      identNr: '',
+      identNo: '',
       manufacturer: '',
       model: '',
       revision: ''
@@ -2396,7 +2394,7 @@ function parsePtdFile(arrayBuffer) {
 
     data.addresses.push({
       addr,
-      identNr: '',
+      identNo: '',
       manufacturer: '',
       model: '',
       revision: ''
@@ -4001,7 +3999,8 @@ $('#btnCsv').addEventListener('click', () => {
   Object.keys(d.signals).forEach(a => allAddrs.add(parseInt(a,10)));
   const sorted = Array.from(allAddrs).sort((a,b)=>a-b);
 
-  const header = 'Endereço;TAG;Fabricante;Modelo;Sinal_mV;Sinal_Status;Jitter_us;Jitter_Status;Diag_DX;Retries;Vezes_Perdido';
+  const sigUnit = d.networkType === 'DP' ? 'V' : 'mV';
+  const header = `Endereço;TAG;Fabricante;Modelo;Sinal_${sigUnit};Sinal_Status;Jitter_us;Jitter_Status;Diag_DX;Retries;Vezes_Perdido`;
   const rows = sorted.map(addr => {
     const dev = d.devices.find(x => x.addr === addr) || {};
     const ai = d.addresses.find(x => x.addr === addr) || {};
