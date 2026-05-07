@@ -627,6 +627,20 @@ body{
   border-radius:10px;margin-left:8px;
 }
 
+/* ====================== CONTAMINATION WARNING BAR ====================== */
+.contamination-bar{
+  display:flex;align-items:center;gap:10px;flex-wrap:wrap;
+  background:#fff3cd;border:1.5px solid #f0ad4e;border-radius:8px;
+  padding:10px 14px;margin-bottom:10px;font-size:13px;color:#7a4800;
+  animation:slideDown 0.25s ease;
+}
+@keyframes slideDown{from{opacity:0;transform:translateY(-8px)}to{opacity:1;transform:translateY(0)}}
+.contamination-icon{ font-size:18px;flex-shrink:0; }
+.contamination-bar .btn-sm{
+  padding:5px 12px;font-size:12px;border-radius:6px;
+  font-weight:600;cursor:pointer;border:1.5px solid currentColor;
+}
+
 /* ====================== NETWORK MODE BADGE ====================== */
 .network-mode-badge{
   display:inline-flex;align-items:center;gap:6px;
@@ -741,6 +755,20 @@ body{
   }
   .pt-page:last-child{page-break-after:auto !important}
 
+/* Mobile: escalar páginas A4 para caber na tela sem scroll horizontal */
+@media screen and (max-width: 860px) {
+  #tab-report { overflow-x: hidden; }
+  .pt-doc { width: 100%; overflow-x: auto; padding: 0 4px; }
+  .pt-page {
+    width: 21cm !important;
+    transform-origin: top left;
+    /* escala calculada para a largura disponível: viewport / 21cm_em_px */
+    transform: scale(var(--bp-page-scale, 0.42));
+    margin-bottom: calc((29.7cm * var(--bp-page-scale, 0.42)) - 29.7cm + 8px) !important;
+  }
+}
+
+
   .pt-page-head{
     border-bottom-color:var(--bp-green) !important;
     -webkit-print-color-adjust:exact;
@@ -841,6 +869,17 @@ body{
       <div style="display:flex;gap:8px">
         <button class="btn btn-ghost" id="btnClearHistory" title="Apaga todas as tags e metadados salvos no navegador">🧹 Limpar histórico</button>
         <button class="btn btn-ghost" id="btnReset">Novo arquivo</button>
+      </div>
+    </div>
+
+    <!-- Banner de aviso de contaminação PA/DP -->
+    <div id="contaminationBar" class="contamination-bar hidden" role="alert">
+      <span class="contamination-icon">⚠</span>
+      <span id="contaminationMsg" style="flex:1"></span>
+      <div style="display:flex;gap:6px;flex-shrink:0;flex-wrap:wrap">
+        <button class="btn btn-sm" id="btnForcePA" style="background:#1a4db5;color:#fff;border-color:#1a4db5">Forçar PA</button>
+        <button class="btn btn-sm" id="btnForceDP" style="background:var(--bp-green);color:#fff;border-color:var(--bp-green)">Forçar DP</button>
+        <button class="btn btn-ghost btn-sm" id="btnDismissContamination">Ignorar</button>
       </div>
     </div>
 
@@ -1153,7 +1192,106 @@ function applyForcedMode(data) {
   }
 }
 
-function updateNetworkModeBadge(type) {
+/* ============================================================
+   SANITIZAÇÃO E VALIDAÇÃO CRUZADA PA/DP
+   Garante que não há resíduos nem contaminação entre tipos.
+   Executado SEMPRE após parse + applyForcedMode.
+   ============================================================ */
+function sanitizeAndValidate(data) {
+  data._contamination = null; // limpar flag
+
+  const sigValues = Object.values(data.signals || {}).filter(v => v != null && !isNaN(v));
+  const avgSig = sigValues.length > 0
+    ? sigValues.reduce((s,v) => s+v, 0) / sigValues.length
+    : null;
+
+  if (data.networkType === 'PA') {
+    // PA: sinais devem estar em mV (tipicamente 350–1200 mV)
+    // Se a média estiver abaixo de 20, os valores são provavelmente Volts (DP) → sinal de alerta
+    if (avgSig !== null && avgSig < 20) {
+      data._contamination = 'UNIT_MISMATCH_PA_GOT_V';
+      data._confidence.warnings.push(
+        `⚠ CONTAMINAÇÃO DETECTADA: Rede marcada como PA mas sinais médios (${avgSig.toFixed(2)}) parecem estar em Volts (esperado: mV). Verifique o seletor Manual PA/DP.`
+      );
+    }
+    // PA NÃO tem idle voltage — zerar para evitar residuos de arquivos DP
+    data.idleVoltages = {};
+
+  } else {
+    // DP: sinais devem estar em V (tipicamente 2–9 V)
+    // Se a média estiver acima de 50, os valores são provavelmente mV (PA) → sinal de alerta
+    if (avgSig !== null && avgSig > 50) {
+      data._contamination = 'UNIT_MISMATCH_DP_GOT_MV';
+      data._confidence.warnings.push(
+        `⚠ CONTAMINAÇÃO DETECTADA: Rede marcada como DP mas sinais médios (${avgSig.toFixed(1)}) parecem estar em mV (esperado: V). Verifique o seletor Manual PA/DP.`
+      );
+    }
+    // DP: limpar jitters se não vieram do arquivo (evita reuso de dado PA anterior)
+    if (Object.keys(data.jitters || {}).length === 0) {
+      data.jitters = {};
+    }
+  }
+
+  // Garantir que arrays de eventos nunca sejam undefined (zero residuo)
+  data.diagSlaves    = Array.isArray(data.diagSlaves)    ? data.diagSlaves    : [];
+  data.lostSlaves    = Array.isArray(data.lostSlaves)    ? data.lostSlaves    : [];
+  data.illegalDevices= Array.isArray(data.illegalDevices)? data.illegalDevices: [];
+  data.retrySlaves   = Array.isArray(data.retrySlaves)   ? data.retrySlaves   : [];
+  data.syncSlaves    = Array.isArray(data.syncSlaves)    ? data.syncSlaves    : [];
+  data.reservedDevice= Array.isArray(data.reservedDevice)? data.reservedDevice: [];
+  data.paramSlaves   = Array.isArray(data.paramSlaves)   ? data.paramSlaves   : [];
+
+  return data;
+}
+
+/* ============================================================
+   CONTAMINATION WARNING — banner PA/DP
+   ============================================================ */
+function showContaminationWarning(code) {
+  const bar = document.getElementById('contaminationBar');
+  const msg = document.getElementById('contaminationMsg');
+  if (!bar || !msg) return;
+  const msgs = {
+    UNIT_MISMATCH_PA_GOT_V:
+      `Arquivo detectado como <b>Profibus PA</b> mas os valores de sinal parecem estar em <b>Volts</b> (esperado: mV). Provável arquivo DP classificado incorretamente. Clique <b>Forçar DP</b>.`,
+    UNIT_MISMATCH_DP_GOT_MV:
+      `Arquivo detectado como <b>Profibus DP</b> mas os valores de sinal parecem estar em <b>mV</b> (esperado: V). Provável arquivo PA classificado incorretamente. Clique <b>Forçar PA</b>.`,
+  };
+  msg.innerHTML = msgs[code] || `Possível inconsistência no tipo de rede detectado. Verifique o seletor Manual PA/DP.`;
+  bar.classList.remove('hidden');
+}
+
+function hideContaminationWarning() {
+  const bar = document.getElementById('contaminationBar');
+  if (bar) bar.classList.add('hidden');
+}
+
+document.getElementById('btnDismissContamination')
+  ?.addEventListener('click', hideContaminationWarning);
+
+document.getElementById('btnForcePA')?.addEventListener('click', () => {
+  if (!state.data) return;
+  setForcedMode('PA');
+  state.data.networkType = 'PA';
+  sanitizeAndValidate(state.data);
+  updateNetworkModeBadge('PA');
+  hideContaminationWarning();
+  renderDashboard();
+  showToast('Modo forçado: Profibus PA ✓');
+});
+
+document.getElementById('btnForceDP')?.addEventListener('click', () => {
+  if (!state.data) return;
+  setForcedMode('DP');
+  state.data.networkType = 'DP';
+  sanitizeAndValidate(state.data);
+  updateNetworkModeBadge('DP');
+  hideContaminationWarning();
+  renderDashboard();
+  showToast('Modo forçado: Profibus DP ✓');
+});
+
+
   const badge = document.getElementById('networkModeBadge');
   const fileTag = document.getElementById('filePdfTag');
   if (!badge) return;
@@ -1250,9 +1388,10 @@ function resetCompleto(opts = {}) {
   // 8. Status
   setStatus('', 'Pronto');
 
-  // 9. Reset mode badge
+  // 9. Reset mode badge and contamination bar
   const badge = document.getElementById('networkModeBadge');
   if (badge) badge.classList.add('hidden');
+  hideContaminationWarning();
   const fileTagEl = document.getElementById('filePdfTag');
   if (fileTagEl) { fileTagEl.textContent = 'PDF'; fileTagEl.style.background = ''; }
 }
@@ -1328,7 +1467,16 @@ $$('.tab-btn').forEach(btn => {
     const tab = btn.dataset.tab;
     $$('.tab-btn').forEach(b => b.classList.toggle('active', b === btn));
     $$('.tab-content').forEach(el => el.classList.toggle('hidden', el.id !== 'tab-' + tab));
-    if (tab === 'report') renderReport();
+    if (tab === 'report') {
+      renderReport();
+      // Calcular escala das páginas A4 para mobile
+      requestAnimationFrame(() => {
+        const vw = document.getElementById('tab-report').clientWidth || window.innerWidth;
+        const a4px = 21 * 37.795; // 21cm em px (96dpi)
+        const scale = Math.min(1, (vw - 16) / a4px);
+        document.documentElement.style.setProperty('--bp-page-scale', scale.toFixed(3));
+      });
+    }
     if (tab === 'dashboard') renderDashboard();
   });
 });
@@ -1687,8 +1835,18 @@ async function handleFile(f){
     // Apply forced mode override if user selected PA or DP manually
     applyForcedMode(state.data);
 
+    // Sanitizar e validar: limpa resíduos, detecta unidade errada, zera campos indevidos
+    sanitizeAndValidate(state.data);
+
     // Update the network mode badge in the header
     updateNetworkModeBadge(state.data.networkType);
+
+    // Show contamination warning if detected
+    if (state.data._contamination) {
+      showContaminationWarning(state.data._contamination, state.data.networkType);
+    } else {
+      hideContaminationWarning();
+    }
     // Carregar metadados específicos deste arquivo (se existirem) e atualizar o form
     loadMeta();
     loadTags();
@@ -2344,12 +2502,18 @@ function parseProfiTrace(text){
   data.network.masters   = parseInt(get(/Number of Masters:\s*(\d+)/i, '0'), 10) || 0;
   data.network.slaves    = parseInt(get(/Number of slaves:\s*(\d+)/i, '0'), 10) || 0;
 
-  // Detect network type from speed
+  // Detect network type from speed — PRIMÁRIA e mais confiável
   const speedStr = data.network.speed.toLowerCase();
   if (/31\.25|45\.45/i.test(speedStr)) {
     data.networkType = 'PA';
+  } else if (/\b(93\.75|187\.5|500|1\.?5|3|6|12)\s*(kbit|kbps|mbit|mbps)/i.test(speedStr) || speedStr.includes('kbps') || speedStr.includes('mbit')) {
+    // Velocidade explicitamente DP → não usar fallback de texto
+    data.networkType = 'DP';
   } else {
-    data.networkType = /PA/i.test(text.slice(0,2000)) ? 'PA' : 'DP';
+    // Sem velocidade legível → NÃO usar busca de texto genérica "PA"
+    // Usar detecção conservadora: assume DP (mais comum) e avisa
+    data.networkType = 'DP';
+    data._confidence.warnings.push('Velocidade de transmissão não identificada — assumindo DP. Confirme o tipo de rede pelo seletor Manual PA/DP.');
   }
 
   const cy = text.match(/Cycle time:\s*Min:\s*([\d.]+\s*\w+),?\s*Avg:\s*([\d.]+\s*\w+),?\s*Max:\s*([\d.]+\s*\w+)/i);
@@ -2472,8 +2636,9 @@ function loadTags(){
 function loadTagsFromStorage(){
   if (!state.data) return false;
   const fileKey = state.file ? state.file.name : 'default';
-  const netKey = state.data.network.name || 'rede';
-  const key = `bp_profibus_tags_${fileKey}_${netKey}`;
+  const netKey  = state.data.network.name || 'rede';
+  const typeKey = state.data.networkType || 'DP';
+  const key = `bp_profibus_tags_${fileKey}_${netKey}_${typeKey}`;
   try {
     const s = localStorage.getItem(key);
     if (s) {
@@ -2487,16 +2652,18 @@ function loadTagsFromStorage(){
 function hasTagsInStorage(){
   if (!state.data) return false;
   const fileKey = state.file ? state.file.name : 'default';
-  const netKey = state.data.network.name || 'rede';
-  const key = `bp_profibus_tags_${fileKey}_${netKey}`;
+  const netKey  = state.data.network.name || 'rede';
+  const typeKey = state.data.networkType || 'DP';
+  const key = `bp_profibus_tags_${fileKey}_${netKey}_${typeKey}`;
   try { return !!localStorage.getItem(key); } catch { return false; }
 }
 
 function saveTags(){
   if (!state.data) return;
   const fileKey = state.file ? state.file.name : 'default';
-  const netKey = state.data.network.name || 'rede';
-  const key = `bp_profibus_tags_${fileKey}_${netKey}`;
+  const netKey  = state.data.network.name || 'rede';
+  const typeKey = state.data.networkType || 'DP';
+  const key = `bp_profibus_tags_${fileKey}_${netKey}_${typeKey}`;
   try { localStorage.setItem(key, JSON.stringify(state.tags)); } catch{}
 }
 
@@ -3866,36 +4033,48 @@ $('#btnCsv').addEventListener('click', () => {
 });
 
 $('#btnPdf').addEventListener('click', () => {
+  if (!state.data) { showToast('Nenhum arquivo carregado.', true); return; }
+
+  // Garantir que a aba de relatório está ativa e renderizada
   $$('.tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === 'report'));
   $$('.tab-content').forEach(el => el.classList.toggle('hidden', el.id !== 'tab-report'));
   renderReport();
 
-  // Detectar mobile (Android, iOS)
   const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
   const isAndroid = /Android/i.test(navigator.userAgent);
 
-  if (isMobile) {
-    // No mobile, abrir o relatório em nova aba — usuário usa "Imprimir → Salvar como PDF" do navegador
-    setTimeout(() => {
-      try {
-        const reportEl = document.getElementById('reportDoc');
-        if (!reportEl) {
-          showToast('Erro: relatório não está pronto. Aguarde alguns segundos.', true);
-          return;
+  // Aguardar renderização completa antes de prosseguir
+  function waitForReport(maxWait) {
+    return new Promise((resolve, reject) => {
+      const start = Date.now();
+      function check() {
+        const el = document.getElementById('reportDoc');
+        if (el && el.innerHTML.trim().length > 200) {
+          resolve(el);
+        } else if (Date.now() - start > maxWait) {
+          reject(new Error('Relatório não renderizou a tempo. Tente novamente.'));
+        } else {
+          requestAnimationFrame(check);
         }
+      }
+      check();
+    });
+  }
 
-        // Coletar todos os estilos da página
+  if (isMobile) {
+    showToast('Gerando relatório…');
+    waitForReport(5000).then(reportEl => {
+      try {
         let styles = '';
         for (const sheet of document.styleSheets) {
           try {
-            for (const rule of sheet.cssRules) {
-              styles += rule.cssText + '\n';
-            }
+            for (const rule of sheet.cssRules) styles += rule.cssText + '\n';
           } catch(e) { /* CORS */ }
         }
 
         const reportHtml = reportEl.outerHTML;
-        const fname = (state.meta.cliente || 'relatorio').replace(/[^a-z0-9_-]/gi,'_') + '_profibus_' + (state.meta.data || new Date().toISOString().slice(0,10));
+        const fname = (state.meta.cliente || 'relatorio').replace(/[^a-z0-9_-]/gi,'_')
+          + '_profibus_' + (state.meta.data || new Date().toISOString().slice(0,10));
 
         const fullHtml = `<!DOCTYPE html>
 <html lang="pt-BR">
@@ -3903,10 +4082,22 @@ $('#btnPdf').addEventListener('click', () => {
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>${fname}</title>
-<style>${styles}
+<style>
+${styles}
+/* Mobile: escalar páginas para caber na tela */
+@media screen and (max-width: 900px) {
+  body { background: #f0f0f0; padding: 0; margin: 0; }
+  .pt-doc { width: 100%; overflow-x: auto; }
+  .pt-page {
+    width: 210mm !important;
+    transform-origin: top left;
+    transform: scale(var(--page-scale, 0.45));
+    margin-bottom: calc((210mm * var(--page-scale, 0.45) - 210mm) * 0.5) !important;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+  }
+}
 @media screen {
   body { background: #f0f0f0; padding: 0; margin: 0; }
-  .pt-doc { max-width: 210mm; margin: 0 auto; background: white; }
   .pt-page { box-shadow: 0 2px 8px rgba(0,0,0,0.15); margin: 8px auto; }
   .mobile-hint {
     position: sticky; top: 0; z-index: 100;
@@ -3923,30 +4114,36 @@ $('#btnPdf').addEventListener('click', () => {
 @media print {
   .mobile-hint { display: none !important; }
   body { background: white; padding: 0; margin: 0; }
-  .pt-page { box-shadow: none !important; margin: 0 !important; page-break-after: always; }
+  .pt-page {
+    transform: none !important; width: 210mm !important;
+    box-shadow: none !important; margin: 0 !important;
+    page-break-after: always;
+  }
 }
 </style>
 </head>
 <body>
 <div class="mobile-hint">
   📄 Toque em <b>Imprimir</b> e selecione <b>"Salvar como PDF"</b>
-  <button onclick="window.print()">Imprimir agora</button>
+  <button onclick="window.print()">🖨 Imprimir / Salvar PDF</button>
 </div>
 ${reportHtml}
 <script>
-  // Auto-trigger após 1.5s para dar tempo da página carregar
+  // Calcular escala dinamicamente
+  const pages = document.querySelectorAll('.pt-page');
+  const scale = Math.min(1, (window.innerWidth - 16) / (210 * 3.7795));
+  document.documentElement.style.setProperty('--page-scale', scale.toFixed(3));
+  // Auto-imprimir após 1.5s
   setTimeout(() => { try { window.print(); } catch(e) {} }, 1500);
 <\/script>
 </body>
 </html>`;
 
-        // Criar Blob e abrir em nova aba
         const blob = new Blob([fullHtml], { type: 'text/html' });
         const url = URL.createObjectURL(blob);
         const newWin = window.open(url, '_blank');
 
         if (!newWin) {
-          // Popup bloqueado — fallback: download direto
           const a = document.createElement('a');
           a.href = url;
           a.download = fname + '.html';
@@ -3954,19 +4151,20 @@ ${reportHtml}
           showToast('Relatório salvo como HTML. Abra-o e use Imprimir → Salvar como PDF.');
         } else {
           showToast(isAndroid
-            ? '✓ Relatório aberto. Use o menu (⋮) → Compartilhar → Imprimir → Salvar como PDF'
-            : '✓ Relatório aberto. Use Compartilhar → Imprimir → Salvar como PDF');
+            ? '✓ Relatório aberto. Menu (⋮) → Compartilhar → Imprimir → Salvar como PDF'
+            : '✓ Relatório aberto. Compartilhar → Imprimir → Salvar como PDF');
         }
-
-        // Limpar URL após 60s
         setTimeout(() => URL.revokeObjectURL(url), 60000);
       } catch (e) {
         console.error(e);
-        showToast('Erro ao gerar PDF: ' + e.message, true);
+        showToast('Erro ao gerar relatório: ' + e.message, true);
       }
-    }, 600);
+    }).catch(err => {
+      showToast(err.message, true);
+    });
+
   } else {
-    // Desktop: usa window.print() normal
+    // Desktop: window.print() normal
     showToast('Preparando PDF — use "Salvar como PDF" na janela de impressão');
     setTimeout(() => window.print(), 400);
   }
